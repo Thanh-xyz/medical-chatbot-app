@@ -22,6 +22,6 @@ export const deleteAdminConversationAPI = async (id) => {
 
 export const getAdminMessagesAPI = async (conversationId) => {
     if (USE_MOCK) return mock.getAdminMessagesAPI(conversationId);
-    const response = await authorizedAxiosAdmin.get(`/v1/admin/conversations/${conversationId}/messages`);
+    const response = await authorizedAxiosAdmin.get(`/v1/admin/messages/conversation/${conversationId}`);
     return response.data;
 };

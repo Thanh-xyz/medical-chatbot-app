@@ -4,33 +4,33 @@ import * as mock from '../../mock/mockApi';
 
 export const getConversationsAPI = async () => {
     if (USE_MOCK) return mock.getConversationsAPI();
-    const response = await authorizedAxiosClient.get('/v1/client/conversations');
+    const response = await authorizedAxiosClient.get('/v1/client/chat/conversations');
     return response.data;
 };
 
-export const createConversationAPI = async () => {
+export const createConversationAPI = async (model = 'qwen-7b') => {
     if (USE_MOCK) return mock.createConversationAPI();
-    const response = await authorizedAxiosClient.post('/v1/client/conversations');
+    const response = await authorizedAxiosClient.post('/v1/client/chat/conversation', { model });
     return response.data;
 };
 
 export const deleteConversationAPI = async (conversationId) => {
     if (USE_MOCK) return mock.deleteConversationAPI(conversationId);
-    const response = await authorizedAxiosClient.delete(`/v1/client/conversations/${conversationId}`);
+    const response = await authorizedAxiosClient.delete(`/v1/client/chat/conversation/${conversationId}`);
     return response.data;
 };
 
 export const getMessagesAPI = async (conversationId) => {
     if (USE_MOCK) return mock.getMessagesAPI(conversationId);
-    const response = await authorizedAxiosClient.get(`/v1/client/conversations/${conversationId}/messages`);
+    const response = await authorizedAxiosClient.get(`/v1/client/chat/messages/${conversationId}`);
     return response.data;
 };
 
 export const sendMessageAPI = async (conversationId, content) => {
     if (USE_MOCK) return mock.sendMessageAPI(conversationId, content);
     const response = await authorizedAxiosClient.post(
-        `/v1/client/conversations/${conversationId}/messages`,
-        { content }
+        '/v1/client/chat/message',
+        { conversationId, message: content }
     );
     return response.data;
 };

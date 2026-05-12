@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../utils/constants';
+import useAuth from '../../hooks/useAuth';
 
 const SettingRow = ({ icon, label, onPress, danger }) => (
     <TouchableOpacity style={styles.settingRow} onPress={onPress}>
@@ -22,6 +23,7 @@ const SettingRow = ({ icon, label, onPress, danger }) => (
 );
 
 const AdminSettingScreen = ({ navigation }) => {
+    const { handleLogout } = useAuth();
     return (
         <SafeAreaView style={styles.safe}>
             <View style={styles.headerBar}>
@@ -35,12 +37,12 @@ const AdminSettingScreen = ({ navigation }) => {
                     <SettingRow
                         icon="people-outline"
                         label="Manage Users"
-                        onPress={() => navigation.navigate('AdminUserList')}
+                        onPress={() => navigation.navigate('AdminUsers')}
                     />
                     <SettingRow
                         icon="chatbubbles-outline"
                         label="Manage Conversations"
-                        onPress={() => navigation.navigate('AdminConversationList')}
+                        onPress={() => navigation.navigate('AdminConversations')}
                     />
                     <SettingRow
                         icon="mail-outline"
@@ -62,7 +64,7 @@ const AdminSettingScreen = ({ navigation }) => {
                         onPress={() =>
                             Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
                                 { text: 'Cancel', style: 'cancel' },
-                                { text: 'Sign Out', style: 'destructive', onPress: () => navigation.navigate('AdminLogin') },
+                                { text: 'Sign Out', style: 'destructive', onPress: () => handleLogout('admin') },
                             ])
                         }
                         danger

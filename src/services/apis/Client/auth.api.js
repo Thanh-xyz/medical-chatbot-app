@@ -6,13 +6,17 @@ import * as mock from '../../mock/mockApi';
 
 export const loginClientAPI = async (data) => {
     if (USE_MOCK) return mock.loginClientAPI(data);
-    const response = await axios.post(`${API_ROOT}/v1/client/auth/login`, data);
+    // backend uses 'identifier' for email or phone
+    const payload = { identifier: data.email ?? data.identifier, password: data.password };
+    const response = await axios.post(`${API_ROOT}/v1/client/auth/login`, payload);
     return response.data;
 };
 
 export const registerClientAPI = async (data) => {
     if (USE_MOCK) return mock.registerClientAPI(data);
-    const response = await axios.post(`${API_ROOT}/v1/client/auth/register`, data);
+    // backend uses 'identifier' for email or phone
+    const payload = { fullName: data.fullName, identifier: data.email ?? data.identifier, password: data.password };
+    const response = await axios.post(`${API_ROOT}/v1/client/auth/register`, payload);
     return response.data;
 };
 
@@ -25,6 +29,6 @@ export const logoutClientAPI = async () => {
 export const refreshClientTokenAPI = async () => {
     if (USE_MOCK) return { accessToken: 'mock-client-token' };
     const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-    const response = await axios.post(`${API_ROOT}/v1/client/auth/refresh`, { refreshToken });
+    const response = await axios.post(`${API_ROOT}/v1/client/auth/refresh-token`, { refreshToken });
     return response.data;
 };

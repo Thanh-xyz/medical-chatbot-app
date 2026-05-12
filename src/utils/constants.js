@@ -1,15 +1,11 @@
-export const API_ROOT = 'http://10.0.2.2:8017'; // Android emulator localhost
-// For iOS simulator use: 'http://localhost:8017'
-// For physical device use your machine's local IP: 'http://192.168.x.x:8017'
+export const API_ROOT = 'http://10.0.2.2:5000/api'; // Android emulator localhost
+// For iOS simulator use: 'http://localhost:5000/api'
+// For physical device use your machine's local IP: 'http://192.168.x.x:5000/api'
 
 // ─── Toggle mock mode ────────────────────────────────────────────────────────
 // Set to true to use built-in demo data (no backend needed)
 // Set to false to connect to the real API
-export const USE_MOCK = true;
-// Demo credentials (only used when USE_MOCK = true):
-//   Admin  → admin@medbot.com  / admin123
-//   Client → user@medbot.com   / user123
-// ─────────────────────────────────────────────────────────────────────────────
+export const USE_MOCK = false;
 
 export const DEFAULT_PAGE = 1;
 export const DEFAULT_ITEMS_PER_PAGE = 10;

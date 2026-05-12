@@ -19,6 +19,6 @@ export const logoutAdminAPI = async () => {
 export const refreshAdminTokenAPI = async () => {
     if (USE_MOCK) return { accessToken: 'mock-admin-token' };
     const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-    const response = await axios.post(`${API_ROOT}/v1/admin/auth/refresh`, { refreshToken });
+    const response = await axios.post(`${API_ROOT}/v1/admin/auth/refresh-token`, { refreshToken });
     return response.data;
 };

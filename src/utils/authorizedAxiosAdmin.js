@@ -26,7 +26,7 @@ authorizedAxiosAdmin.interceptors.response.use(
             originalRequest._retry = true;
             try {
                 const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-                const res = await axios.post(`${API_ROOT}/v1/admin/auth/refresh`, { refreshToken });
+                const res = await axios.post(`${API_ROOT}/v1/admin/auth/refresh-token`, { refreshToken });
                 const { accessToken } = res.data;
                 await AsyncStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
                 originalRequest.headers.Authorization = `Bearer ${accessToken}`;

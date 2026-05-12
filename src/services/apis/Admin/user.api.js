@@ -22,7 +22,7 @@ export const createUserAPI = async (data) => {
 
 export const updateUserAPI = async (userId, data) => {
     if (USE_MOCK) return mock.updateUserAPI(userId, data);
-    const response = await authorizedAxiosAdmin.put(`/v1/admin/users/${userId}`, data);
+    const response = await authorizedAxiosAdmin.patch(`/v1/admin/users/${userId}`, data);
     return response.data;
 };
 
