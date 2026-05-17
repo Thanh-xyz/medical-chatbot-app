@@ -5,15 +5,24 @@ import { loginAdminAPI, logoutAdminAPI } from '../services/apis/Admin/auth.api';
 const useAuth = () => {
     const { user, loading, login, logout, updateUser } = useAuthContext();
 
+    const assertLoginResponse = (data, role) => {
+        if (!data?.user && !data?.accountAdmin) {
+            throw new Error(`Backend ${role} login must return user data.`);
+        }
+    };
+
     const handleClientLogin = async (email, password) => {
         const data = await loginClientAPI({ email, password });
+        assertLoginResponse(data, 'client');
         await login(data.user, data.accessToken, data.refreshToken);
         return data;
     };
 
     const handleAdminLogin = async (email, password) => {
         const data = await loginAdminAPI({ email, password });
-        await login(data.user, data.accessToken, data.refreshToken);
+        assertLoginResponse(data, 'admin');
+        const adminUser = data.user || data.accountAdmin;
+        await login({ ...adminUser, role: 'admin' }, data.accessToken, data.refreshToken);
         return data;
     };
 
@@ -25,7 +34,6 @@ const useAuth = () => {
                 await logoutClientAPI();
             }
         } catch {
-            // still clear local state even if API fails
         } finally {
             await logout();
         }

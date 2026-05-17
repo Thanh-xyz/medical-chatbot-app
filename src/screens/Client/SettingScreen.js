@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -9,224 +9,493 @@ import {
     ScrollView,
     ActivityIndicator,
     Alert,
+    Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import useAuth from '../../hooks/useAuth';
-import { updateClientAccountAPI, changeClientPasswordAPI } from '../../services/apis/Client/myAccount.api';
-import { COLORS } from '../../utils/constants';
+import { useSettings } from '../../store/SettingsContext';
+import { useChatContext } from '../../store/ChatContext';
+import { updateClientAccountAPI } from '../../services/apis/Client/myAccount.api';
+import { uploadImageAPI } from '../../services/apis/Client/upload.api';
 
-const SettingScreen = () => {
+const SettingScreen = ({ navigation }) => {
     const { user, handleLogout, updateUser } = useAuth();
-    const [editMode, setEditMode] = useState(false);
-    const [fullName, setFullName] = useState(user?.fullName ?? '');
-    const [loading, setLoading] = useState(false);
+    const { fontSize, setFontSize, isDarkMode, setIsDarkMode } = useSettings();
+    const { deleteAllConversations } = useChatContext();
 
-    const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
-    const [pwLoading, setPwLoading] = useState(false);
+    const [fullName, setFullName] = useState(user?.fullName ?? '');
+    const [avatarUri, setAvatarUri] = useState(null);
+    const [isSaving, setIsSaving] = useState(false);
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
+    const [isDeletingAll, setIsDeletingAll] = useState(false);
+
+    useEffect(() => {
+        if (user?.fullName) setFullName(user.fullName);
+    }, [user]);
+
+    const bg = isDarkMode ? '#0F172A' : '#F5F9FC';
+    const cardBg = isDarkMode ? '#1E293B' : '#FFFFFF';
+    const cardBorder = isDarkMode ? '#334155' : '#E2F4FF';
+    const textPrimary = isDarkMode ? '#F1F5F9' : '#0F172A';
+    const textMuted = isDarkMode ? '#94A3B8' : '#64748B';
+    const inputBg = isDarkMode ? '#334155' : '#F9FAFB';
+    const inputBorder = isDarkMode ? '#475569' : '#E5E7EB';
+    const inputText = isDarkMode ? '#F1F5F9' : '#1E293B';
+
+    const handlePickAvatar = async () => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Cần quyền truy cập', 'Vui lòng cho phép truy cập thư viện ảnh.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.8,
+        });
+        if (!result.canceled && result.assets?.length > 0) {
+            setAvatarUri(result.assets[0].uri);
+        }
+    };
 
     const handleSaveProfile = async () => {
         if (!fullName.trim()) {
-            Alert.alert('Error', 'Name cannot be empty.');
+            Alert.alert('Lỗi', 'Vui lòng nhập họ và tên.');
             return;
         }
-        setLoading(true);
+        const nameChanged = fullName.trim() !== user?.fullName;
+        if (!nameChanged && !avatarUri) {
+            Alert.alert('Thông báo', 'Thông tin không có gì thay đổi!');
+            return;
+        }
+        setIsSaving(true);
         try {
-            const updated = await updateClientAccountAPI({ fullName: fullName.trim() });
+            const payload = { fullName: fullName.trim() };
+            if (avatarUri) {
+                const uploadRes = await uploadImageAPI(avatarUri);
+                payload.avatar = uploadRes.url;
+                setAvatarUri(null);
+            }
+            const updated = await updateClientAccountAPI(payload);
             await updateUser(updated);
-            setEditMode(false);
-            Alert.alert('Success', 'Profile updated.');
+            Alert.alert('Thành công', 'Lưu thông tin thành công!');
         } catch (err) {
-            Alert.alert('Error', err?.response?.data?.message ?? 'Failed to update profile.');
+            Alert.alert('Lỗi', err?.response?.data?.message ?? 'Không thể cập nhật thông tin.');
         } finally {
-            setLoading(false);
+            setIsSaving(false);
         }
     };
 
-    const handleChangePassword = async () => {
-        const { currentPassword, newPassword, confirmPassword } = pwForm;
-        if (!currentPassword || !newPassword || !confirmPassword) {
-            Alert.alert('Error', 'Please fill in all password fields.');
-            return;
-        }
-        if (newPassword !== confirmPassword) {
-            Alert.alert('Error', 'Passwords do not match.');
-            return;
-        }
-        setPwLoading(true);
-        try {
-            await changeClientPasswordAPI({ currentPassword, newPassword });
-            setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-            Alert.alert('Success', 'Password changed.');
-        } catch (err) {
-            Alert.alert('Error', err?.response?.data?.message ?? 'Failed to change password.');
-        } finally {
-            setPwLoading(false);
-        }
+    const confirmDeleteAll = () => {
+        Alert.alert(
+            'Xóa tất cả lịch sử chat',
+            'Hành động này không thể hoàn tác. Bạn có chắc muốn xóa tất cả lịch sử khám không?',
+            [
+                { text: 'Huỷ', style: 'cancel' },
+                {
+                    text: 'Xóa tất cả',
+                    style: 'destructive',
+                    onPress: async () => {
+                        setIsDeletingAll(true);
+                        try {
+                            await deleteAllConversations();
+                            Alert.alert('Thành công', 'Đã xóa toàn bộ lịch sử chat.');
+                        } catch {
+                            Alert.alert('Lỗi', 'Xóa thất bại, vui lòng thử lại.');
+                        } finally {
+                            setIsDeletingAll(false);
+                        }
+                    },
+                },
+            ]
+        );
     };
+
+    const confirmLogout = () => {
+        Alert.alert('Đăng xuất', 'Bạn có chắc muốn đăng xuất?', [
+            { text: 'Huỷ', style: 'cancel' },
+            {
+                text: 'Đăng xuất',
+                style: 'destructive',
+                onPress: async () => {
+                    setIsLoggingOut(true);
+                    await handleLogout('client');
+                },
+            },
+        ]);
+    };
+
+    const fontSizeOptions = [
+        { key: 'small', label: 'Nhỏ', textStyle: { fontSize: 13 } },
+        { key: 'medium', label: 'Vừa', textStyle: { fontSize: 15 } },
+        { key: 'large', label: 'To', textStyle: { fontSize: 17 } },
+    ];
 
     return (
-        <SafeAreaView style={styles.safe}>
-            <View style={styles.header}>
-                <Text style={styles.headerTitle}>Settings</Text>
+        <SafeAreaView style={[styles.safe, { backgroundColor: bg }]}>
+            <View style={[styles.header, { backgroundColor: cardBg, borderBottomColor: cardBorder }]}>
+                <View>
+                    <Text style={[styles.headerTitle, { color: textPrimary }]}>Cài đặt</Text>
+                    <Text style={[styles.headerSubtitle, { color: textMuted }]}>
+                        Quản lý hồ sơ, giao diện và dữ liệu của bạn.
+                    </Text>
+                </View>
             </View>
 
-            <ScrollView contentContainerStyle={styles.container}>
-                {/* Profile Card */}
-                <View style={styles.card}>
-                    <View style={styles.avatarCircle}>
-                        <Text style={styles.avatarText}>{user?.fullName?.[0]?.toUpperCase() ?? 'U'}</Text>
-                    </View>
-                    <Text style={styles.emailText}>{user?.email}</Text>
-
-                    <Text style={styles.sectionTitle}>Profile</Text>
-
-                    <View style={styles.inputWrapper}>
-                        <Ionicons name="person-outline" size={18} color={COLORS.textLight} style={styles.inputIcon} />
-                        <TextInput
-                            style={styles.input}
-                            value={fullName}
-                            onChangeText={setFullName}
-                            editable={editMode}
-                            placeholder="Full name"
-                            placeholderTextColor={COLORS.textLight}
-                        />
-                        {!editMode && (
-                            <TouchableOpacity onPress={() => setEditMode(true)}>
-                                <Ionicons name="pencil-outline" size={18} color={COLORS.primary} />
-                            </TouchableOpacity>
-                        )}
-                    </View>
-
-                    {editMode && (
-                        <View style={styles.row}>
-                            <TouchableOpacity style={styles.cancelBtn} onPress={() => { setEditMode(false); setFullName(user?.fullName ?? ''); }}>
-                                <Text style={styles.cancelBtnText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.saveBtn, loading && styles.btnDisabled]} onPress={handleSaveProfile} disabled={loading}>
-                                {loading ? <ActivityIndicator color={COLORS.white} size="small" /> : <Text style={styles.saveBtnText}>Save</Text>}
-                            </TouchableOpacity>
+            <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+                <View style={[styles.card, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+                    <View style={styles.userRow}>
+                        <View style={[styles.avatarCircle, { overflow: 'hidden' }]}>
+                            {(avatarUri || user?.avatar) ? (
+                                <Image source={{ uri: avatarUri || user.avatar }} style={styles.avatarImage} />
+                            ) : (
+                                <Text style={styles.avatarText}>
+                                    {user?.fullName?.[0]?.toUpperCase() ?? 'U'}
+                                </Text>
+                            )}
                         </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[styles.userName, { color: textPrimary }]} numberOfLines={1}>
+                                {user?.fullName ?? 'Người dùng'}
+                            </Text>
+                            <Text style={[styles.userAccount, { color: textMuted }]} numberOfLines={1}>
+                                {user?.email || user?.phone || 'Tài khoản miễn phí'}
+                            </Text>
+                        </View>
+                        <TouchableOpacity
+                            style={[styles.changeAvatarBtn, { borderColor: isDarkMode ? '#475569' : '#BAE6FD', backgroundColor: isDarkMode ? '#1E293B' : '#F0F9FF' }]}
+                            onPress={handlePickAvatar}
+                        >
+                            <Ionicons name="camera-outline" size={16} color="#2563EB" />
+                        </TouchableOpacity>
+                    </View>
+                    {avatarUri && (
+                        <Text style={[styles.avatarHint, { color: '#2563EB' }]}>Ảnh mới đã chọn. Nhấn "Lưu thông tin" để cập nhật.</Text>
                     )}
                 </View>
-
-                {/* Change Password */}
-                <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>Change Password</Text>
-
-                    {[
-                        { key: 'currentPassword', placeholder: 'Current password' },
-                        { key: 'newPassword', placeholder: 'New password' },
-                        { key: 'confirmPassword', placeholder: 'Confirm new password' },
-                    ].map(({ key, placeholder }) => (
-                        <View key={key} style={styles.inputWrapper}>
-                            <Ionicons name="lock-closed-outline" size={18} color={COLORS.textLight} style={styles.inputIcon} />
-                            <TextInput
-                                style={styles.input}
-                                placeholder={placeholder}
-                                placeholderTextColor={COLORS.textLight}
-                                value={pwForm[key]}
-                                onChangeText={(v) => setPwForm((p) => ({ ...p, [key]: v }))}
-                                secureTextEntry
-                            />
+                <View style={[styles.card, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+                    <View style={styles.sectionHeader}>
+                        <View style={styles.sectionIconBox}>
+                            <Ionicons name="person-outline" size={20} color="#2563EB" />
                         </View>
-                    ))}
+                        <View style={{ flex: 1 }}>
+                            <Text style={[styles.sectionTitle, { color: textPrimary }]}>Thông tin của bạn</Text>
+                            <Text style={[styles.sectionDesc, { color: textMuted }]}>
+                                Cập nhật tên hiển thị trong ứng dụng.
+                            </Text>
+                        </View>
+                    </View>
+
+                    <Text style={[styles.label, { color: isDarkMode ? '#CBD5E1' : '#374151' }]}>Họ và tên</Text>
+                    <View style={[styles.inputWrapper, { backgroundColor: inputBg, borderColor: inputBorder }]}>
+                        <TextInput
+                            style={[styles.input, { color: inputText }]}
+                            value={fullName}
+                            onChangeText={setFullName}
+                            placeholder="Nhập họ và tên..."
+                            placeholderTextColor={textMuted}
+                        />
+                    </View>
+
+                    <Text style={[styles.label, { color: isDarkMode ? '#CBD5E1' : '#374151' }]}>Tài khoản</Text>
+                    <View style={[styles.inputWrapper, { backgroundColor: isDarkMode ? '#1E293B' : '#F1F5F9', borderColor: inputBorder }]}>
+                        <TextInput
+                            style={[styles.input, { color: textMuted }]}
+                            value={user?.email || user?.phone || ''}
+                            editable={false}
+                        />
+                    </View>
+                    <Text style={[styles.hintText, { color: textMuted }]}>Tên tài khoản không thể thay đổi.</Text>
 
                     <TouchableOpacity
-                        style={[styles.saveBtn, pwLoading && styles.btnDisabled]}
-                        onPress={handleChangePassword}
-                        disabled={pwLoading}
+                        style={[styles.saveBtn, isSaving && { opacity: 0.6 }]}
+                        onPress={handleSaveProfile}
+                        disabled={isSaving}
                     >
-                        {pwLoading ? <ActivityIndicator color={COLORS.white} size="small" /> : <Text style={styles.saveBtnText}>Update Password</Text>}
+                        {isSaving ? (
+                            <ActivityIndicator color="#FFFFFF" size="small" />
+                        ) : (
+                            <>
+                                <Ionicons name="save-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                                <Text style={styles.saveBtnText}>Lưu thông tin</Text>
+                            </>
+                        )}
                     </TouchableOpacity>
                 </View>
-
-                {/* Logout */}
-                <TouchableOpacity style={styles.logoutBtn} onPress={() => handleLogout('client')}>
-                    <Ionicons name="log-out-outline" size={20} color={COLORS.danger} />
-                    <Text style={styles.logoutText}>Sign Out</Text>
-                </TouchableOpacity>
+                <View style={[styles.card, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+                    <View style={styles.sectionHeader}>
+                        <View style={styles.sectionIconBox}>
+                            <Ionicons name="settings-outline" size={20} color="#2563EB" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[styles.sectionTitle, { color: textPrimary }]}>Tùy chỉnh hiển thị</Text>
+                            <Text style={[styles.sectionDesc, { color: textMuted }]}>
+                                Điều chỉnh giao diện theo thói quen của bạn.
+                            </Text>
+                        </View>
+                    </View>
+                    <View style={[styles.optionBox, { backgroundColor: isDarkMode ? '#334155' : '#F0F9FF', borderColor: isDarkMode ? '#475569' : '#BAE6FD' }]}>
+                        <View style={styles.optionLabelRow}>
+                            <Ionicons name="text-outline" size={16} color="#2563EB" />
+                            <Text style={[styles.optionLabel, { color: textPrimary }]}>Kích thước chữ trong chat</Text>
+                        </View>
+                        <View style={styles.fontSizeRow}>
+                            {fontSizeOptions.map((opt) => (
+                                <TouchableOpacity
+                                    key={opt.key}
+                                    style={[
+                                        styles.fontSizeBtn,
+                                        fontSize === opt.key
+                                            ? styles.fontSizeBtnActive
+                                            : [styles.fontSizeBtnNormal, { borderColor: isDarkMode ? '#475569' : '#BAE6FD' }],
+                                    ]}
+                                    onPress={() => setFontSize(opt.key)}
+                                >
+                                    <Text
+                                        style={[
+                                            opt.textStyle,
+                                            { fontWeight: '700', color: fontSize === opt.key ? '#FFFFFF' : (isDarkMode ? '#94A3B8' : '#64748B') },
+                                        ]}
+                                    >
+                                        {opt.label}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </View>
+                    <View style={[styles.optionBox, { backgroundColor: isDarkMode ? '#334155' : '#F0F9FF', borderColor: isDarkMode ? '#475569' : '#BAE6FD' }]}>
+                        <View style={styles.optionLabelRow}>
+                            <Text style={[styles.optionLabel, { color: textPrimary }]}>Giao diện</Text>
+                        </View>
+                        <Text style={[styles.optionDesc, { color: textMuted }]}>Chọn chế độ sáng hoặc tối.</Text>
+                        <View style={[styles.modeToggle, { backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF', borderColor: isDarkMode ? '#475569' : '#BAE6FD' }]}>
+                            <TouchableOpacity
+                                style={[styles.modeBtn, !isDarkMode && styles.modeBtnActive]}
+                                onPress={() => setIsDarkMode(false)}
+                            >
+                                <Ionicons name="sunny-outline" size={15} color={!isDarkMode ? '#FFFFFF' : (isDarkMode ? '#94A3B8' : '#64748B')} style={{ marginRight: 4 }} />
+                                <Text style={[styles.modeBtnText, !isDarkMode && { color: '#FFFFFF' }, isDarkMode && { color: '#94A3B8' }]}>
+                                    Sáng
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.modeBtn, isDarkMode && styles.modeBtnActive]}
+                                onPress={() => setIsDarkMode(true)}
+                            >
+                                <Ionicons name="moon-outline" size={15} color={isDarkMode ? '#FFFFFF' : '#64748B'} style={{ marginRight: 4 }} />
+                                <Text style={[styles.modeBtnText, isDarkMode && { color: '#FFFFFF' }]}>Tối</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+                <View style={[styles.card, styles.dangerCard, { backgroundColor: isDarkMode ? 'rgba(239,68,68,0.08)' : '#FFF5F5', borderColor: isDarkMode ? 'rgba(239,68,68,0.3)' : '#FECACA' }]}>
+                    <View style={styles.sectionHeader}>
+                        <View style={[styles.sectionIconBox, { backgroundColor: 'rgba(239,68,68,0.1)' }]}>
+                            <Ionicons name="trash-outline" size={20} color="#EF4444" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[styles.sectionTitle, { color: '#EF4444' }]}>Vùng nguy hiểm</Text>
+                            <Text style={[styles.sectionDesc, { color: isDarkMode ? '#FCA5A5' : '#B91C1C', opacity: 0.8 }]}>
+                                Các hành động dưới đây không thể hoàn tác.
+                            </Text>
+                        </View>
+                    </View>
+                    <TouchableOpacity
+                        style={[styles.deleteAllBtn, isDeletingAll && { opacity: 0.6 }]}
+                        onPress={confirmDeleteAll}
+                        disabled={isDeletingAll}
+                    >
+                        {isDeletingAll ? (
+                            <ActivityIndicator color="#EF4444" size="small" />
+                        ) : (
+                            <>
+                                <Ionicons name="trash-outline" size={16} color="#EF4444" style={{ marginRight: 6 }} />
+                                <Text style={styles.deleteAllText}>Xóa tất cả lịch sử chat</Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
+                </View>
+                <View style={[styles.card, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+                    <Text style={[styles.sectionTitle, { color: textPrimary }]}>Tìm hiểu thêm</Text>
+                    <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate('ClientUpgrade')}>
+                        <Ionicons name="rocket-outline" size={18} color={textMuted} style={{ marginRight: 10 }} />
+                        <Text style={[styles.linkText, { color: textPrimary }]}>Nâng cấp gói</Text>
+                        <Ionicons name="chevron-forward-outline" size={16} color={textMuted} />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate('ClientUsagePolicy')}>
+                        <Ionicons name="document-text-outline" size={18} color={textMuted} style={{ marginRight: 10 }} />
+                        <Text style={[styles.linkText, { color: textPrimary }]}>Chính sách sử dụng</Text>
+                        <Ionicons name="chevron-forward-outline" size={16} color={textMuted} />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate('ClientPrivacyPolicy')}>
+                        <Ionicons name="shield-outline" size={18} color={textMuted} style={{ marginRight: 10 }} />
+                        <Text style={[styles.linkText, { color: textPrimary }]}>Chính sách quyền riêng tư</Text>
+                        <Ionicons name="chevron-forward-outline" size={16} color={textMuted} />
+                    </TouchableOpacity>
+                </View>
+                <View style={[styles.card, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+                    <TouchableOpacity
+                        style={[styles.logoutBtn, { backgroundColor: isDarkMode ? '#334155' : '#F1F5F9' }]}
+                        onPress={confirmLogout}
+                        disabled={isLoggingOut}
+                    >
+                        {isLoggingOut ? (
+                            <ActivityIndicator color="#EF4444" size="small" />
+                        ) : (
+                            <>
+                                <Ionicons name="log-out-outline" size={18} color="#EF4444" style={{ marginRight: 8 }} />
+                                <Text style={styles.logoutText}>Đăng xuất tài khoản</Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
+                </View>
             </ScrollView>
         </SafeAreaView>
     );
 };
 
 const styles = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: COLORS.background },
+    safe: { flex: 1 },
     header: {
-        backgroundColor: COLORS.primary,
-        paddingHorizontal: 16,
-        paddingVertical: 14,
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+        borderBottomWidth: 1,
     },
-    headerTitle: { color: COLORS.white, fontSize: 18, fontWeight: '700' },
-    container: { padding: 16 },
+    headerTitle: { fontSize: 22, fontWeight: '700' },
+    headerSubtitle: { fontSize: 13, marginTop: 2 },
+    container: { padding: 16, paddingBottom: 32 },
+
     card: {
-        backgroundColor: COLORS.white,
-        borderRadius: 16,
+        borderRadius: 20,
         padding: 20,
-        marginBottom: 16,
+        marginBottom: 14,
+        borderWidth: 1,
         shadowColor: '#000',
-        shadowOpacity: 0.06,
+        shadowOpacity: 0.04,
         shadowRadius: 8,
         shadowOffset: { width: 0, height: 2 },
-        elevation: 3,
+        elevation: 2,
     },
+    dangerCard: {},
+
+    userRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     avatarCircle: {
-        width: 64,
-        height: 64,
-        borderRadius: 32,
-        backgroundColor: COLORS.primary,
-        alignSelf: 'center',
+        width: 52,
+        height: 52,
+        borderRadius: 26,
+        backgroundColor: '#2563EB',
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 8,
     },
-    avatarText: { color: COLORS.white, fontSize: 28, fontWeight: '700' },
-    emailText: { textAlign: 'center', color: COLORS.textLight, fontSize: 14, marginBottom: 16 },
-    sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 14 },
-    inputWrapper: {
+    avatarImage: { width: 52, height: 52, borderRadius: 26 },
+    avatarText: { color: '#FFFFFF', fontSize: 20, fontWeight: '700' },
+    changeAvatarBtn: { width: 34, height: 34, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+    avatarHint: { fontSize: 12, marginTop: 10, fontStyle: 'italic' },
+    userName: { fontSize: 15, fontWeight: '700' },
+    userAccount: { fontSize: 13, marginTop: 2 },
+
+    sectionHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 18 },
+    sectionIconBox: {
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        backgroundColor: '#EFF6FF',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+    },
+    sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
+    sectionDesc: { fontSize: 13, lineHeight: 18 },
+    linkRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: COLORS.inputBg,
-        borderRadius: 10,
-        paddingHorizontal: 12,
-        paddingVertical: 10,
+        paddingVertical: 13,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(0,0,0,0.06)',
+        marginTop: 4,
+    },
+    linkText: { flex: 1, fontSize: 15 },
+
+    label: { fontSize: 13, fontWeight: '600', marginBottom: 6 },
+    inputWrapper: {
         borderWidth: 1,
-        borderColor: COLORS.border,
+        borderRadius: 12,
+        paddingHorizontal: 14,
         marginBottom: 12,
     },
-    inputIcon: { marginRight: 8 },
-    input: { flex: 1, fontSize: 15, color: COLORS.text },
-    row: { flexDirection: 'row', gap: 12 },
-    cancelBtn: {
-        flex: 1,
-        borderRadius: 10,
-        paddingVertical: 12,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    cancelBtnText: { color: COLORS.text, fontWeight: '600' },
+    input: { paddingVertical: 12, fontSize: 15 },
+    hintText: { fontSize: 11, marginBottom: 16, marginTop: -8 },
+
     saveBtn: {
-        flex: 1,
-        backgroundColor: COLORS.primary,
-        borderRadius: 10,
-        paddingVertical: 12,
+        flexDirection: 'row',
+        alignSelf: 'flex-start',
+        backgroundColor: '#2563EB',
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 10,
         alignItems: 'center',
+        shadowColor: '#2563EB',
+        shadowOpacity: 0.25,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 3 },
+        elevation: 3,
     },
-    saveBtnText: { color: COLORS.white, fontWeight: '700' },
-    btnDisabled: { opacity: 0.6 },
+    saveBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+
+    optionBox: {
+        borderRadius: 14,
+        borderWidth: 1,
+        padding: 14,
+        marginBottom: 12,
+    },
+    optionLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+    optionLabel: { fontSize: 14, fontWeight: '600' },
+    optionDesc: { fontSize: 13, marginBottom: 10, marginTop: -6 },
+
+    fontSizeRow: { flexDirection: 'row', gap: 8 },
+    fontSizeBtn: { flex: 1, borderRadius: 12, paddingVertical: 10, alignItems: 'center', borderWidth: 1 },
+    fontSizeBtnActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
+    fontSizeBtnNormal: { backgroundColor: 'transparent' },
+
+    modeToggle: {
+        flexDirection: 'row',
+        borderWidth: 1,
+        borderRadius: 14,
+        padding: 4,
+        alignSelf: 'flex-start',
+    },
+    modeBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 10,
+    },
+    modeBtnActive: { backgroundColor: '#2563EB' },
+    modeBtnText: { fontSize: 13, fontWeight: '700', color: '#64748B' },
+
+    deleteAllBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#FECACA',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        paddingVertical: 12,
+    },
+    deleteAllText: { color: '#EF4444', fontWeight: '700', fontSize: 14 },
+
     logoutBtn: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: COLORS.white,
         borderRadius: 12,
-        paddingVertical: 16,
-        borderWidth: 1,
-        borderColor: COLORS.danger,
-        gap: 8,
+        paddingVertical: 14,
     },
-    logoutText: { color: COLORS.danger, fontWeight: '700', fontSize: 16 },
+    logoutText: { color: '#EF4444', fontWeight: '700', fontSize: 15 },
 });
 
 export default SettingScreen;

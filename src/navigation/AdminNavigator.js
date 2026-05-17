@@ -10,12 +10,12 @@ import ConversationDetailScreen from '../screens/Admin/ConversationDetailScreen'
 import MessageListScreen from '../screens/Admin/MessageListScreen';
 import AdminSettingScreen from '../screens/Admin/AdminSettingScreen';
 import AdminAccountScreen from '../screens/Admin/AdminAccountScreen';
+import AdminAccountListScreen from '../screens/Admin/AdminAccountListScreen';
+import GroupPermissionsScreen from '../screens/Admin/GroupPermissionsScreen';
 import AdminSidebar from '../components/Admin/Sidebar';
 
 const Drawer = createDrawerNavigator();
 const Stack = createNativeStackNavigator();
-
-// Stack for user management (detail/edit pushed on top)
 const UserStack = () => (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="AdminUserList" component={UserListScreen} />
@@ -23,8 +23,6 @@ const UserStack = () => (
         <Stack.Screen name="AdminUserEdit" component={UserEditScreen} />
     </Stack.Navigator>
 );
-
-// Stack for conversation management
 const ConversationStack = () => (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="AdminConversationList" component={ConversationListScreen} />
@@ -50,6 +48,8 @@ const AdminNavigator = () => {
             <Drawer.Screen name="AdminMessageList" component={MessageListScreen} />
             <Drawer.Screen name="AdminSetting" component={AdminSettingScreen} />
             <Drawer.Screen name="AdminAccount" component={AdminAccountScreen} />
+            <Drawer.Screen name="AdminAccountList" component={AdminAccountListScreen} />
+            <Drawer.Screen name="AdminGroupPermissions" component={GroupPermissionsScreen} />
         </Drawer.Navigator>
     );
 };

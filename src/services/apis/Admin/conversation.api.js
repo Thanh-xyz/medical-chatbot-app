@@ -1,27 +1,31 @@
 import authorizedAxiosAdmin from '../../../utils/authorizedAxiosAdmin';
-import { USE_MOCK } from '../../../utils/constants';
-import * as mock from '../../mock/mockApi';
 
 export const getAdminConversationsAPI = async (params) => {
-    if (USE_MOCK) return mock.getAdminConversationsAPI(params);
-    const response = await authorizedAxiosAdmin.get('/v1/admin/conversations', { params });
-    return response.data;
+    const response = await authorizedAxiosAdmin.get('/admin/v1/conversations', { params });
+    const data = response.data;
+    return {
+        conversations: data.data ?? [],
+        total: data.pagination?.totalItems ?? 0,
+        keyword: data.keyword,
+    };
 };
 
 export const getAdminConversationByIdAPI = async (id) => {
-    if (USE_MOCK) return mock.getAdminConversationByIdAPI(id);
-    const response = await authorizedAxiosAdmin.get(`/v1/admin/conversations/${id}`);
-    return response.data;
+    const response = await authorizedAxiosAdmin.get(`/admin/v1/conversations/${id}`);
+    return response.data.data;
 };
 
 export const deleteAdminConversationAPI = async (id) => {
-    if (USE_MOCK) return mock.deleteAdminConversationAPI(id);
-    const response = await authorizedAxiosAdmin.delete(`/v1/admin/conversations/${id}`);
+    const response = await authorizedAxiosAdmin.delete(`/admin/v1/conversations/${id}`);
     return response.data;
 };
 
+export const updateAdminConversationAPI = async (id, data) => {
+    const response = await authorizedAxiosAdmin.patch(`/admin/v1/conversations/${id}`, data);
+    return response.data.data;
+};
+
 export const getAdminMessagesAPI = async (conversationId) => {
-    if (USE_MOCK) return mock.getAdminMessagesAPI(conversationId);
-    const response = await authorizedAxiosAdmin.get(`/v1/admin/messages/conversation/${conversationId}`);
-    return response.data;
+    const response = await authorizedAxiosAdmin.get(`/admin/v1/messages/conversation/${conversationId}`);
+    return response.data.data ?? [];
 };

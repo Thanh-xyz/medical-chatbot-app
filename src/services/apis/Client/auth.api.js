@@ -1,34 +1,24 @@
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import authorizedAxiosClient from '../../../utils/authorizedAxiosClient';
-import { API_ROOT, STORAGE_KEYS, USE_MOCK } from '../../../utils/constants';
-import * as mock from '../../mock/mockApi';
+import { apiFetchJson } from '../../../utils/apiClient';
+import { STORAGE_KEYS } from '../../../utils/constants';
 
 export const loginClientAPI = async (data) => {
-    if (USE_MOCK) return mock.loginClientAPI(data);
-    // backend uses 'identifier' for email or phone
     const payload = { identifier: data.email ?? data.identifier, password: data.password };
-    const response = await axios.post(`${API_ROOT}/v1/client/auth/login`, payload);
-    return response.data;
+    return apiFetchJson('/v1/login', { method: 'POST', body: payload });
 };
 
 export const registerClientAPI = async (data) => {
-    if (USE_MOCK) return mock.registerClientAPI(data);
-    // backend uses 'identifier' for email or phone
     const payload = { fullName: data.fullName, identifier: data.email ?? data.identifier, password: data.password };
-    const response = await axios.post(`${API_ROOT}/v1/client/auth/register`, payload);
-    return response.data;
+    return apiFetchJson('/v1/register', { method: 'POST', body: payload });
 };
 
 export const logoutClientAPI = async () => {
-    if (USE_MOCK) return mock.logoutClientAPI();
-    const response = await authorizedAxiosClient.delete('/v1/client/auth/logout');
+    const response = await authorizedAxiosClient.delete('/v1/logout');
     return response.data;
 };
 
 export const refreshClientTokenAPI = async () => {
-    if (USE_MOCK) return { accessToken: 'mock-client-token' };
     const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-    const response = await axios.post(`${API_ROOT}/v1/client/auth/refresh-token`, { refreshToken });
-    return response.data;
+    return apiFetchJson('/v1/refresh-token', { method: 'POST', body: { refreshToken } });
 };

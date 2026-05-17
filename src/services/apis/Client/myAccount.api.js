@@ -1,21 +1,16 @@
 import authorizedAxiosClient from '../../../utils/authorizedAxiosClient';
-import { USE_MOCK } from '../../../utils/constants';
-import * as mock from '../../mock/mockApi';
 
 export const getClientAccountAPI = async () => {
-    if (USE_MOCK) return mock.getClientAccountAPI();
-    const response = await authorizedAxiosClient.get('/v1/client/my-profile');
-    return response.data;
+    const response = await authorizedAxiosClient.get('/v1/my-profile');
+    return response.data.user;
 };
 
 export const updateClientAccountAPI = async (data) => {
-    if (USE_MOCK) return mock.updateClientAccountAPI(data);
-    const response = await authorizedAxiosClient.patch('/v1/client/my-profile', data);
-    return response.data;
+    const response = await authorizedAxiosClient.patch('/v1/my-profile', data);
+    return response.data.user;
 };
 
 export const changeClientPasswordAPI = async (data) => {
-    if (USE_MOCK) return mock.changeClientPasswordAPI(data);
-    const response = await authorizedAxiosClient.patch('/v1/client/my-profile/change-password', data);
+    const response = await authorizedAxiosClient.patch('/v1/my-profile/change-password', data);
     return response.data;
 };

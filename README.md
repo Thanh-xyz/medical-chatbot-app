@@ -134,10 +134,10 @@ Khi Metro Bundler khởi động, nhấn phím **`a`** để mở ứng dụng t
 
 5. Quét QR code hiển thị trên terminal bằng app **Expo Go**.
 
-> ⚠️ **Lưu ý kết nối API khi dùng thiết bị thật:**
-> Mở file `src/utils/constants.js` và đổi `API_ROOT` từ `10.0.2.2` sang IP nội bộ của máy tính:
-> ```js
-> export const API_ROOT = 'http://192.168.x.x:8017'; // IP máy tính của bạn
+> ⚠️ **Lưu ý kết nối API:**
+> Ứng dụng chỉ gọi backend deploy. Cấu hình trong `.env`:
+> ```env
+> EXPO_PUBLIC_API_ROOT=https://api.ntrthanh.io.vn
 > ```
 
 ### Cách 3: Build file APK (Android)
@@ -152,19 +152,21 @@ File APK sẽ nằm tại: `android/app/build/outputs/apk/debug/app-debug.apk`
 
 ---
 
-## 🔑 Tài khoản demo (Chế độ Mock)
+## 🔑 Kết nối backend
 
-Ứng dụng mặc định chạy ở chế độ **mock** (không cần backend). Dùng các tài khoản sau để đăng nhập thử:
+Frontend hiện gọi các service trong `src/services/apis` thông qua backend deploy. Cấu hình địa chỉ backend tại `.env`:
 
-| Vai trò | Email | Mật khẩu |
-|---|---|---|
-| 👤 Người dùng | `user@medbot.com` | `user123` |
-| 🔐 Admin | `admin@medbot.com` | `admin123` |
-
-Để bật/tắt chế độ mock, mở file `src/utils/constants.js`:
-```js
-export const USE_MOCK = true;  // true = dùng dữ liệu giả, false = kết nối backend thật
+```env
+EXPO_PUBLIC_API_ROOT=https://api.ntrthanh.io.vn
 ```
+
+Sau khi đổi `.env`, khởi động lại Expo và xoá cache để Metro nạp URL mới:
+
+```bash
+npx expo start -c
+```
+
+`src/utils/constants.js` tự ghép thêm `/api` để tạo base API cho các path hiện có.
 
 ---
 
@@ -193,14 +195,11 @@ MyApp/
 │   │   ├── apis/
 │   │   │   ├── Admin/            # API calls phía admin
 │   │   │   └── Client/           # API calls phía client
-│   │   └── mock/
-│   │       ├── mockData.js       # Dữ liệu giả (users, conversations, messages)
-│   │       └── mockApi.js        # Triển khai API giả
 │   ├── store/
 │   │   ├── AuthContext.js        # Quản lý trạng thái xác thực toàn cục
 │   │   └── ChatContext.js        # Quản lý trạng thái chat toàn cục
 │   └── utils/
-│       ├── constants.js          # API_ROOT, COLORS, USE_MOCK...
+│       ├── constants.js          # API_ROOT, COLORS...
 │       ├── authorizedAxiosAdmin.js
 │       └── authorizedAxiosClient.js
 └── assets/                       # Icon, splash screen

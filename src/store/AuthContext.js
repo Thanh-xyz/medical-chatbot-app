@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DeviceEventEmitter } from 'react-native';
 import { STORAGE_KEYS } from '../utils/constants';
 
 const AuthContext = createContext(null);
@@ -12,6 +13,14 @@ export const AuthProvider = ({ children }) => {
         loadStoredUser();
     }, []);
 
+    useEffect(() => {
+        const subscription = DeviceEventEmitter.addListener('auth:logout', () => {
+            setUser(null);
+        });
+
+        return () => subscription.remove();
+    }, []);
+
     const loadStoredUser = async () => {
         try {
             const userJson = await AsyncStorage.getItem(STORAGE_KEYS.USER_INFO);
@@ -19,7 +28,6 @@ export const AuthProvider = ({ children }) => {
                 setUser(JSON.parse(userJson));
             }
         } catch {
-            // ignore parse errors
         } finally {
             setLoading(false);
         }
@@ -27,9 +35,15 @@ export const AuthProvider = ({ children }) => {
 
     const login = async (userData, accessToken, refreshToken) => {
         await AsyncStorage.setItem(STORAGE_KEYS.USER_INFO, JSON.stringify(userData));
-        await AsyncStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+        if (accessToken) {
+            await AsyncStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+        } else {
+            await AsyncStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
+        }
         if (refreshToken) {
             await AsyncStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
+        } else {
+            await AsyncStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
         }
         setUser(userData);
     };

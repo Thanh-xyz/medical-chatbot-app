@@ -13,6 +13,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import useAuth from '../../hooks/useAuth';
+import { isAdminApp } from '../../config/appVariant';
+import { getApiErrorMessage } from '../../utils/apiClient';
 
 const LoginScreen = ({ navigation }) => {
     const [account, setAccount] = useState('');
@@ -32,7 +34,7 @@ const LoginScreen = ({ navigation }) => {
         try {
             await handleClientLogin(account.trim(), password);
         } catch (err) {
-            setError(err?.response?.data?.message ?? 'Thông tin đăng nhập không đúng.');
+            setError(getApiErrorMessage(err, 'Thông tin đăng nhập không đúng.'));
         } finally {
             setLoading(false);
         }
@@ -45,7 +47,6 @@ const LoginScreen = ({ navigation }) => {
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
                 <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-                    {/* Logo */}
                     <View style={styles.logoContainer}>
                         <View style={styles.logoCircle}>
                             <Ionicons name="add" size={36} color="#FFFFFF" />
@@ -54,20 +55,28 @@ const LoginScreen = ({ navigation }) => {
                         <Text style={styles.tagline}>Chăm sóc sức khỏe gia đình bạn</Text>
                     </View>
 
-                    {/* Card */}
                     <View style={styles.card}>
-                        <Text style={styles.heading}>Đăng Nhập</Text>
+                        <View style={styles.badgeRow}>
+                            <Ionicons name="shield-checkmark-outline" size={14} color="#0369A1" />
+                            <Text style={styles.badgeText}>Đăng nhập bảo mật</Text>
+                        </View>
+
+                        <Text style={styles.heading}>Chào mừng trở lại</Text>
+                        <Text style={styles.subheading}>
+                            Tiếp tục cuộc trò chuyện với trợ lý y tế AI của bạn
+                        </Text>
 
                         {!!error && (
                             <View style={styles.errorBox}>
-                                <Text style={styles.errorText}>⚠️ {error}</Text>
+                                <Ionicons name="alert-circle-outline" size={15} color="#B91C1C" style={{ marginRight: 6 }} />
+                                <Text style={styles.errorText}>{error}</Text>
                             </View>
                         )}
 
-                        <Text style={styles.label}>Tài khoản (Email / SĐT)</Text>
+                        <Text style={styles.label}>Email hoặc số điện thoại</Text>
                         <TextInput
                             style={styles.input}
-                            placeholder="Nhập email hoặc số điện thoại..."
+                            placeholder="example@email.com hoặc 0909..."
                             placeholderTextColor="#A0AEC0"
                             value={account}
                             onChangeText={setAccount}
@@ -116,12 +125,14 @@ const LoginScreen = ({ navigation }) => {
                             </Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity
-                            style={styles.adminLink}
-                            onPress={() => navigation.navigate('AdminLogin')}
-                        >
-                            <Text style={styles.adminLinkText}>Trang quản trị →</Text>
-                        </TouchableOpacity>
+                        {isAdminApp && (
+                            <TouchableOpacity
+                                style={styles.adminLink}
+                                onPress={() => navigation.navigate('AdminLogin')}
+                            >
+                                <Text style={styles.adminLinkText}>Trang quản trị →</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 </ScrollView>
             </KeyboardAvoidingView>
@@ -162,11 +173,32 @@ const styles = StyleSheet.create({
     heading: {
         fontSize: 22,
         fontWeight: '700',
-        color: '#2563EB',
-        textAlign: 'center',
+        color: '#0F172A',
+        marginBottom: 4,
+    },
+    subheading: {
+        fontSize: 13,
+        color: '#64748B',
+        lineHeight: 18,
         marginBottom: 20,
     },
+    badgeRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        backgroundColor: '#E0F2FE',
+        borderWidth: 1,
+        borderColor: '#BAE6FD',
+        borderRadius: 20,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        marginBottom: 14,
+        gap: 5,
+    },
+    badgeText: { fontSize: 12, fontWeight: '600', color: '#0369A1' },
     errorBox: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
         backgroundColor: '#FEF2F2',
         borderLeftWidth: 4,
         borderLeftColor: '#EF4444',
@@ -174,7 +206,7 @@ const styles = StyleSheet.create({
         padding: 12,
         marginBottom: 16,
     },
-    errorText: { color: '#B91C1C', fontSize: 14, lineHeight: 20 },
+    errorText: { color: '#B91C1C', fontSize: 13, flex: 1, lineHeight: 18 },
     label: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 6 },
     input: {
         backgroundColor: '#F9FAFB',

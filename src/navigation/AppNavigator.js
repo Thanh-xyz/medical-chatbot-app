@@ -5,6 +5,7 @@ import useAuth from '../hooks/useAuth';
 import AuthNavigator from './AuthNavigator';
 import ClientNavigator from './ClientNavigator';
 import AdminNavigator from './AdminNavigator';
+import { isAdminApp } from '../config/appVariant';
 import { COLORS } from '../utils/constants';
 
 const AppNavigator = () => {
@@ -22,8 +23,10 @@ const AppNavigator = () => {
         <NavigationContainer>
             {!user ? (
                 <AuthNavigator />
-            ) : user.role === 'admin' ? (
+            ) : isAdminApp && user.role === 'admin' ? (
                 <AdminNavigator />
+            ) : isAdminApp ? (
+                <AuthNavigator />
             ) : (
                 <ClientNavigator />
             )}

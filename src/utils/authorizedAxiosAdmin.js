@@ -1,11 +1,20 @@
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_ROOT, STORAGE_KEYS } from './constants';
+import { DeviceEventEmitter } from 'react-native';
+import { apiFetchJson, createApiClient } from './apiClient';
+import { STORAGE_KEYS } from './constants';
 
-const authorizedAxiosAdmin = axios.create({
-    baseURL: API_ROOT,
+const authorizedAxiosAdmin = createApiClient({
     timeout: 10000,
 });
+
+const clearAuthAndNotify = async () => {
+    await AsyncStorage.multiRemove([
+        STORAGE_KEYS.ACCESS_TOKEN,
+        STORAGE_KEYS.REFRESH_TOKEN,
+        STORAGE_KEYS.USER_INFO,
+    ]);
+    DeviceEventEmitter.emit('auth:logout');
+};
 
 authorizedAxiosAdmin.interceptors.request.use(
     async (config) => {
@@ -22,21 +31,25 @@ authorizedAxiosAdmin.interceptors.response.use(
     (response) => response,
     async (error) => {
         const originalRequest = error.config;
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        const shouldRefresh = [401, 410].includes(error.response?.status);
+
+        if (shouldRefresh && originalRequest && !originalRequest._retry) {
             originalRequest._retry = true;
             try {
                 const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-                const res = await axios.post(`${API_ROOT}/v1/admin/auth/refresh-token`, { refreshToken });
-                const { accessToken } = res.data;
-                await AsyncStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
-                originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+                const res = await apiFetchJson('/admin/v1/auth/refresh-token', {
+                    method: 'POST',
+                    body: refreshToken ? { refreshToken } : {},
+                });
+                const { accessToken } = res;
+                if (accessToken) {
+                    await AsyncStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+                    originalRequest.headers = originalRequest.headers || {};
+                    originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+                }
                 return authorizedAxiosAdmin(originalRequest);
             } catch {
-                await AsyncStorage.multiRemove([
-                    STORAGE_KEYS.ACCESS_TOKEN,
-                    STORAGE_KEYS.REFRESH_TOKEN,
-                    STORAGE_KEYS.USER_INFO,
-                ]);
+                await clearAuthAndNotify();
             }
         }
         return Promise.reject(error);
