@@ -9,6 +9,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useSettings } from '../../store/SettingsContext';
+import { goBackOrNavigate } from '../../utils/navigation';
 
 const INFO_CARDS = [
     {
@@ -33,7 +34,7 @@ const INFO_CARDS = [
     },
 ];
 
-const PrivacyPolicyScreen = ({ navigation }) => {
+const PrivacyPolicyScreen = ({ navigation, route }) => {
     const { isDarkMode } = useSettings();
 
     const bg = isDarkMode ? '#0F172A' : '#F0F4F8';
@@ -46,7 +47,7 @@ const PrivacyPolicyScreen = ({ navigation }) => {
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: bg }} edges={['top', 'bottom']}>
             <ScrollView contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
-                <TouchableOpacity style={s.backBtn} onPress={() => navigation.navigate('ClientSettings')}>
+                <TouchableOpacity style={s.backBtn} onPress={() => goBackOrNavigate(navigation, route?.params?.from || 'ClientSettings')}>
                     <Ionicons name="arrow-back-outline" size={16} color={textPrimary} />
                     <Text style={[s.backText, { color: textPrimary }]}>Quay lại</Text>
                 </TouchableOpacity>

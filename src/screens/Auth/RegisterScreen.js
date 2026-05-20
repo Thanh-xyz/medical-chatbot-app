@@ -13,60 +13,92 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { registerClientAPI } from '../../services/apis/Client/auth.api';
+import { getApiErrorMessage } from '../../utils/apiClient';
+import { debugLog } from '../../utils/authSession';
+import { validateEmail, validateFullName, validatePassword } from '../../utils/validation';
+
+const getPasswordStrength = (value = '') => {
+    let score = 0;
+    if (value.length >= 8) score += 1;
+    if (/[A-Z]/.test(value)) score += 1;
+    if (/[0-9]/.test(value)) score += 1;
+    if (/[^A-Za-z0-9]/.test(value)) score += 1;
+    return score;
+};
+
+const strengthConfig = {
+    0: { label: '', color: '#E5E7EB' },
+    1: { label: 'Yếu', color: '#DC3545' },
+    2: { label: 'Trung bình', color: '#F59E0B' },
+    3: { label: 'Mạnh', color: '#16A34A' },
+    4: { label: 'Rất mạnh', color: '#166534' },
+};
+
+const getPasswordChecks = (value = '') => [
+    { label: 'Ít nhất 8 ký tự', valid: value.length >= 8 },
+    { label: 'Có ít nhất 1 chữ hoa', valid: /[A-Z]/.test(value) },
+    { label: 'Có ít nhất 1 chữ số', valid: /[0-9]/.test(value) },
+];
 
 const RegisterScreen = ({ navigation }) => {
     const [fullName, setFullName] = useState('');
-    const [identifier, setIdentifier] = useState('');
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [fieldErrors, setFieldErrors] = useState({});
     const [success, setSuccess] = useState(false);
 
     const validate = () => {
-        if (!fullName.trim()) {
-            setError('Vui lòng nhập họ và tên.');
-            return false;
+        const nextErrors = {};
+        const fullNameError = validateFullName(fullName);
+        if (fullNameError) nextErrors.fullName = fullNameError;
+
+        const normalizedEmail = email.trim().toLowerCase();
+        const emailError = validateEmail(normalizedEmail);
+        if (emailError) nextErrors.email = emailError;
+
+        const passwordError = validatePassword(password);
+        if (passwordError) nextErrors.password = passwordError;
+
+        if (!confirmPassword) {
+            nextErrors.confirmPassword = 'Vui lòng xác nhận mật khẩu';
+        } else if (confirmPassword !== password) {
+            nextErrors.confirmPassword = 'Mật khẩu xác nhận không khớp';
         }
-        if (fullName.trim().length < 2) {
-            setError('Họ và tên phải có ít nhất 2 ký tự.');
-            return false;
-        }
-        if (!identifier.trim()) {
-            setError('Vui lòng nhập số điện thoại hoặc email.');
-            return false;
-        }
-        const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier.trim());
-        const isPhone = /^(0|\+84)[0-9]{9}$/.test(identifier.trim());
-        if (!isEmail && !isPhone) {
-            setError('Vui lòng nhập đúng định dạng email hoặc số điện thoại.');
-            return false;
-        }
-        if (!password) {
-            setError('Vui lòng nhập mật khẩu.');
-            return false;
-        }
-        if (password.length < 6) {
-            setError('Mật khẩu phải có ít nhất 6 ký tự.');
-            return false;
-        }
-        return true;
+
+        setFieldErrors(nextErrors);
+        return Object.keys(nextErrors).length === 0;
     };
 
     const handleRegister = async () => {
         setError('');
+        setFieldErrors({});
         if (!validate()) return;
         setLoading(true);
         try {
-            await registerClientAPI({ fullName: fullName.trim(), identifier: identifier.trim(), password });
+            const payload = { fullName: fullName.trim(), email: email.trim().toLowerCase(), password };
+            debugLog('[RegisterScreen] submitting payload', { ...payload, password: '[REDACTED]' });
+            await registerClientAPI(payload);
             setSuccess(true);
-            setTimeout(() => navigation.navigate('ClientLogin'), 2000);
+            setTimeout(() => navigation.navigate('ClientLogin'), 3000);
         } catch (err) {
-            setError(err?.response?.data?.message ?? 'Có lỗi xảy ra, vui lòng thử lại!');
+            debugLog('[RegisterScreen] register error', {
+                status: err?.response?.status,
+                data: err?.response?.data,
+                message: err?.message,
+                code: err?.code,
+            });
+            setError(getApiErrorMessage(err, 'Có lỗi xảy ra, vui lòng thử lại!'));
         } finally {
             setLoading(false);
         }
     };
+
+    const passwordStrength = getPasswordStrength(password);
+    const passwordStrengthConfig = strengthConfig[passwordStrength];
 
     return (
         <LinearGradient colors={['#E0F2FE', '#BAE6FD', '#E0F7FA']} style={styles.gradient}>
@@ -91,7 +123,7 @@ const RegisterScreen = ({ navigation }) => {
 
                         <Text style={styles.heading}>Tạo tài khoản mới</Text>
                         <Text style={styles.subheading}>
-                            Bắt đầu sử dụng trợ lý y tế AI với một tài khoản đơn giản, bảo mật.
+                            Bắt đầu sử dụng trợ lý y tế AI với một tài khoản đơn giản, bảo mật và dễ quản lý.
                         </Text>
 
                         {!!error && (
@@ -105,7 +137,7 @@ const RegisterScreen = ({ navigation }) => {
                             <View style={styles.successBox}>
                                 <Ionicons name="checkmark-circle-outline" size={15} color="#15803D" style={{ marginRight: 6 }} />
                                 <Text style={styles.successText}>
-                                    Tài khoản đã được tạo. Đang chuyển về trang đăng nhập...
+                                    Tài khoản đã được tạo. Vui lòng mở email và bấm link xác nhận trước khi đăng nhập.
                                 </Text>
                             </View>
                         )}
@@ -122,27 +154,39 @@ const RegisterScreen = ({ navigation }) => {
                                 autoCapitalize="words"
                             />
                         </View>
+                        {!!fieldErrors.fullName && (
+                            <View style={styles.fieldErrorRow}>
+                                <Ionicons name="alert-circle-outline" size={14} color="#DC2626" />
+                                <Text style={styles.fieldErrorText}>{fieldErrors.fullName}</Text>
+                            </View>
+                        )}
 
-                        <Text style={styles.label}>Số điện thoại hoặc Email</Text>
+                        <Text style={styles.label}>Email</Text>
                         <View style={styles.inputWrapper}>
                             <Ionicons name="mail-outline" size={18} color="#A0AEC0" style={styles.inputIcon} />
                             <TextInput
                                 style={styles.input}
-                                placeholder="0909... hoặc example@email.com"
+                                placeholder="example@email.com"
                                 placeholderTextColor="#A0AEC0"
-                                value={identifier}
-                                onChangeText={setIdentifier}
+                                value={email}
+                                onChangeText={setEmail}
                                 autoCapitalize="none"
                                 keyboardType="email-address"
                             />
                         </View>
+                        {!!fieldErrors.email && (
+                            <View style={styles.fieldErrorRow}>
+                                <Ionicons name="alert-circle-outline" size={14} color="#DC2626" />
+                                <Text style={styles.fieldErrorText}>{fieldErrors.email}</Text>
+                            </View>
+                        )}
 
                         <Text style={styles.label}>Mật khẩu</Text>
                         <View style={styles.inputWrapper}>
                             <Ionicons name="lock-closed-outline" size={18} color="#A0AEC0" style={styles.inputIcon} />
                             <TextInput
                                 style={[styles.input, { flex: 1 }]}
-                                placeholder="Tạo mật khẩu tối thiểu 6 ký tự"
+                                placeholder="Tối thiểu 8 ký tự, 1 chữ hoa, 1 số"
                                 placeholderTextColor="#A0AEC0"
                                 value={password}
                                 onChangeText={setPassword}
@@ -156,6 +200,61 @@ const RegisterScreen = ({ navigation }) => {
                                 />
                             </TouchableOpacity>
                         </View>
+                        <View style={styles.strengthWrap}>
+                            <View style={styles.strengthBars}>
+                                {[1, 2, 3, 4].map((item) => (
+                                    <View
+                                        key={item}
+                                        style={[
+                                            styles.strengthBar,
+                                            { backgroundColor: item <= passwordStrength ? passwordStrengthConfig.color : '#E5E7EB' },
+                                        ]}
+                                    />
+                                ))}
+                            </View>
+                            {!!passwordStrengthConfig.label && (
+                                <Text style={[styles.strengthLabel, { color: passwordStrengthConfig.color }]}>
+                                    {passwordStrengthConfig.label}
+                                </Text>
+                            )}
+                            {getPasswordChecks(password).map((check) => (
+                                <View key={check.label} style={styles.passwordCheckRow}>
+                                    <Ionicons
+                                        name={check.valid ? 'checkmark-circle-outline' : 'ellipse-outline'}
+                                        size={15}
+                                        color={check.valid ? '#15803D' : '#CBD5E1'}
+                                    />
+                                    <Text style={[styles.passwordCheckText, check.valid && styles.passwordCheckValid]}>
+                                        {check.label}
+                                    </Text>
+                                </View>
+                            ))}
+                            {!!fieldErrors.password && (
+                                <View style={styles.fieldErrorRow}>
+                                    <Ionicons name="alert-circle-outline" size={14} color="#DC2626" />
+                                    <Text style={styles.fieldErrorText}>{fieldErrors.password}</Text>
+                                </View>
+                            )}
+                        </View>
+
+                        <Text style={styles.label}>Xác nhận mật khẩu</Text>
+                        <View style={styles.inputWrapper}>
+                            <Ionicons name="lock-closed-outline" size={18} color="#A0AEC0" style={styles.inputIcon} />
+                            <TextInput
+                                style={styles.input}
+                                placeholder="Nhập lại mật khẩu"
+                                placeholderTextColor="#A0AEC0"
+                                value={confirmPassword}
+                                onChangeText={setConfirmPassword}
+                                secureTextEntry={!showPassword}
+                            />
+                        </View>
+                        {!!fieldErrors.confirmPassword && (
+                            <View style={styles.fieldErrorRow}>
+                                <Ionicons name="alert-circle-outline" size={14} color="#DC2626" />
+                                <Text style={styles.fieldErrorText}>{fieldErrors.confirmPassword}</Text>
+                            </View>
+                        )}
 
                         <TouchableOpacity
                             style={[styles.btn, (loading || success) && styles.btnDisabled]}
@@ -192,8 +291,8 @@ const RegisterScreen = ({ navigation }) => {
 
 const styles = StyleSheet.create({
     gradient: { flex: 1 },
-    container: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 48 },
-    logoContainer: { alignItems: 'center', marginBottom: 32 },
+    container: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 20, paddingVertical: 36 },
+    logoContainer: { alignItems: 'center', marginBottom: 24 },
     logoCircle: {
         width: 72,
         height: 72,
@@ -208,7 +307,7 @@ const styles = StyleSheet.create({
     card: {
         backgroundColor: '#FFFFFF',
         borderRadius: 24,
-        padding: 28,
+        padding: 24,
         shadowColor: '#000',
         shadowOpacity: 0.1,
         shadowRadius: 16,
@@ -262,7 +361,7 @@ const styles = StyleSheet.create({
         borderColor: '#E5E7EB',
         borderRadius: 12,
         paddingHorizontal: 12,
-        marginBottom: 14,
+        marginBottom: 8,
     },
     inputIcon: { marginRight: 8 },
     input: {
@@ -272,6 +371,49 @@ const styles = StyleSheet.create({
         color: '#1E293B',
     },
     eyeBtn: { padding: 4 },
+    fieldErrorRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        marginBottom: 10,
+    },
+    fieldErrorText: {
+        color: '#DC2626',
+        fontSize: 12,
+        fontWeight: '600',
+        flex: 1,
+    },
+    strengthWrap: {
+        marginBottom: 10,
+        gap: 7,
+    },
+    strengthBars: {
+        flexDirection: 'row',
+        gap: 5,
+        marginTop: 2,
+    },
+    strengthBar: {
+        flex: 1,
+        height: 4,
+        borderRadius: 999,
+    },
+    strengthLabel: {
+        fontSize: 12,
+        fontWeight: '700',
+    },
+    passwordCheckRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    passwordCheckText: {
+        color: '#64748B',
+        fontSize: 12,
+        fontWeight: '600',
+    },
+    passwordCheckValid: {
+        color: '#15803D',
+    },
     btn: {
         flexDirection: 'row',
         backgroundColor: '#2563EB',

@@ -1,7 +1,8 @@
 {
   "expo": {
-    "name": "Healthcare Admin",
+    "name": "Healthcare",
     "slug": "MyApp",
+    "scheme": "healthcare",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon-healthcare.jpg",
@@ -14,13 +15,17 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ntrthanh.healthcare.admin",
+      "bundleIdentifier": "com.ntrthanh.healthcare",
+      "associatedDomains": [
+        "applinks:healthcare-system.ntrthanh.io.vn"
+      ],
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Ứng dụng cần quyền micro để ghi âm câu hỏi y tế của bạn.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
+      "package": "com.ntrthanh.healthcare",
       "permissions": [
         "RECORD_AUDIO"
       ],
@@ -29,11 +34,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "softwareKeyboardLayoutMode": "pan",
-      "package": "com.ntrthanh.healthcare.admin"
-    },
-    "web": {
-      "favicon": "./assets/icon-healthcare.jpg"
+      "softwareKeyboardLayoutMode": "pan"
     },
     "plugins": [
       "expo-secure-store",

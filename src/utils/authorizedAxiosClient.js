@@ -1,57 +1,53 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DeviceEventEmitter } from 'react-native';
-import { apiFetchJson, createApiClient } from './apiClient';
-import { STORAGE_KEYS } from './constants';
+import { createApiClient } from './apiClient';
+import {
+    attachCookieHeader,
+    clearAuthSession,
+    persistResponseCookies,
+} from './authSession';
 
 const authorizedAxiosClient = createApiClient({
     timeout: 1000 * 60 * 10,
 });
+const refreshAxiosClient = createApiClient();
 
 const clearAuthAndNotify = async () => {
-    await AsyncStorage.multiRemove([
-        STORAGE_KEYS.ACCESS_TOKEN,
-        STORAGE_KEYS.REFRESH_TOKEN,
-        STORAGE_KEYS.USER_INFO,
-    ]);
+    await clearAuthSession('client');
     DeviceEventEmitter.emit('auth:logout');
 };
 
 authorizedAxiosClient.interceptors.request.use(
-    async (config) => {
-        const token = await AsyncStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
-        if (token) {
-            config.headers.Authorization = `Bearer ${token}`;
-        }
-        return config;
-    },
+    (config) => attachCookieHeader(config, 'client'),
     (error) => Promise.reject(error)
 );
 
 authorizedAxiosClient.interceptors.response.use(
-    (response) => response,
+    async (response) => {
+        await persistResponseCookies(response.headers, 'client');
+        return response;
+    },
     async (error) => {
         const originalRequest = error.config;
-        const shouldRefresh = [401, 410].includes(error.response?.status);
+        const status = error.response?.status;
 
-        if (shouldRefresh && originalRequest && !originalRequest._retry) {
+        if (status === 410 && originalRequest && !originalRequest._retry) {
             originalRequest._retry = true;
             try {
-                const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-                const res = await apiFetchJson('/v1/refresh-token', {
-                    method: 'POST',
-                    body: refreshToken ? { refreshToken } : {},
-                });
-                const { accessToken } = res;
-                if (accessToken) {
-                    await AsyncStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
-                    originalRequest.headers = originalRequest.headers || {};
-                    originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-                }
+                await attachCookieHeader(originalRequest, 'client');
+                const refreshConfig = await attachCookieHeader({}, 'client');
+                const refreshResponse = await refreshAxiosClient.post('/v1/refresh-token', {}, refreshConfig);
+                await persistResponseCookies(refreshResponse.headers, 'client');
+                await attachCookieHeader(originalRequest, 'client');
                 return authorizedAxiosClient(originalRequest);
             } catch {
                 await clearAuthAndNotify();
             }
         }
+
+        if ([401, 403].includes(status)) {
+            await clearAuthAndNotify();
+        }
+
         return Promise.reject(error);
     }
 );

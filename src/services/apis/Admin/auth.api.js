@@ -1,18 +1,29 @@
 import authorizedAxiosAdmin from '../../../utils/authorizedAxiosAdmin';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { apiFetchJson } from '../../../utils/apiClient';
-import { STORAGE_KEYS } from '../../../utils/constants';
+import apiClient from '../../../utils/apiClient';
+import {
+    attachCookieHeader,
+    clearAuthSession,
+    persistResponseCookies,
+} from '../../../utils/authSession';
 
 export const loginAdminAPI = async (data) => {
-    return apiFetchJson('/admin/v1/auth/login', { method: 'POST', body: data });
-};
-
-export const logoutAdminAPI = async () => {
-    const response = await authorizedAxiosAdmin.delete('/admin/v1/auth/logout');
+    const response = await apiClient.post('/admin/v1/auth/login', data);
+    await persistResponseCookies(response.headers, 'admin');
     return response.data;
 };
 
+export const logoutAdminAPI = async () => {
+    try {
+        const response = await authorizedAxiosAdmin.delete('/admin/v1/auth/logout');
+        return response.data;
+    } finally {
+        await clearAuthSession('admin');
+    }
+};
+
 export const refreshAdminTokenAPI = async () => {
-    const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-    return apiFetchJson('/admin/v1/auth/refresh-token', { method: 'POST', body: { refreshToken } });
+    const config = await attachCookieHeader({}, 'admin');
+    const response = await apiClient.post('/admin/v1/auth/refresh-token', {}, config);
+    await persistResponseCookies(response.headers, 'admin');
+    return response.data;
 };

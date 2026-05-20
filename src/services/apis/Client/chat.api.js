@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import authorizedAxiosClient from '../../../utils/authorizedAxiosClient';
 import { API_ROOT, STORAGE_KEYS } from '../../../utils/constants';
+import { withStoredCookie } from '../../../utils/authSession';
 
 const normalizeConversation = (data, fallbackModel = 'qwen-7b') => {
     if (!data || typeof data !== 'object') return data;
@@ -102,20 +103,31 @@ export const cancelChatResponse = async (conversationId) => {
     }
 };
 
-export const streamMessageFromAPI = async (conversationId, message, model, onChunk) => {
-    const token = await AsyncStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+export const streamMessageFromAPI = async (conversationId, message, model, onChunk, options = {}) => {
+    const headers = await withStoredCookie({
+        'Content-Type': 'application/json',
+    }, 'client');
     const response = await fetch(`${API_ROOT}/v1/chat/message-stream`, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers,
+        signal: options.signal,
         body: JSON.stringify({ conversationId, message, model }),
     });
 
     if (!response.ok) throw new Error(`Stream request failed: ${response.status}`);
     if (!response.body) throw new Error('Streaming not supported in this environment');
+    if (typeof response.body.getReader !== 'function' || typeof TextDecoder === 'undefined') {
+        const text = await response.text();
+        text.split('\n\n').forEach((part) => {
+            if (!part.startsWith('data: ')) return;
+            const dataStr = part.substring(6);
+            if (!dataStr || ['[DONE]', '[ERROR]', 'undefined'].includes(dataStr)) return;
+            if (dataStr.startsWith('[METADATA] ')) return;
+            onChunk(dataStr);
+        });
+        return;
+    }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');

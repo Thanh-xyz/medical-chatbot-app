@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     View,
     Text,
@@ -15,6 +15,9 @@ import { Ionicons } from '@expo/vector-icons';
 import useAuth from '../../hooks/useAuth';
 import { isAdminApp } from '../../config/appVariant';
 import { getApiErrorMessage } from '../../utils/apiClient';
+import { validateEmail } from '../../utils/validation';
+import { formatLoginLockRemaining, getLoginLockRemainingSeconds } from '../../utils/authLock';
+import { resendVerificationEmailAPI } from '../../services/apis/Client/auth.api';
 
 const LoginScreen = ({ navigation }) => {
     const [account, setAccount] = useState('');
@@ -22,21 +25,82 @@ const LoginScreen = ({ navigation }) => {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+    const [canResendVerification, setCanResendVerification] = useState(false);
+    const [resendingVerification, setResendingVerification] = useState(false);
+    const [lockedUntil, setLockedUntil] = useState(null);
+    const [lockRemainingSeconds, setLockRemainingSeconds] = useState(0);
     const { handleClientLogin } = useAuth();
 
+    useEffect(() => {
+        if (!lockedUntil) return undefined;
+        const updateRemaining = () => {
+            const remaining = getLoginLockRemainingSeconds(lockedUntil);
+            setLockRemainingSeconds(remaining);
+            if (remaining <= 0) setLockedUntil(null);
+        };
+        updateRemaining();
+        const timer = setInterval(updateRemaining, 1000);
+        return () => clearInterval(timer);
+    }, [lockedUntil]);
+
     const handleLogin = async () => {
-        if (!account.trim() || !password.trim()) {
-            setError('Bác/cháu vui lòng nhập Email hoặc Số điện thoại ạ.');
+        if (lockRemainingSeconds > 0) {
+            setError(`Tài khoản đang bị tạm khóa. Vui lòng thử lại sau ${formatLoginLockRemaining(lockRemainingSeconds)}.`);
+            return;
+        }
+        const email = account.trim().toLowerCase();
+        const emailError = validateEmail(email);
+        if (emailError) {
+            setError(emailError);
+            setSuccess('');
+            setCanResendVerification(false);
+            return;
+        }
+        if (!password.trim()) {
+            setError('Mật khẩu không được để trống');
+            setSuccess('');
+            setCanResendVerification(false);
             return;
         }
         setError('');
+        setSuccess('');
+        setCanResendVerification(false);
         setLoading(true);
         try {
-            await handleClientLogin(account.trim(), password);
+            await handleClientLogin(email, password);
         } catch (err) {
-            setError(getApiErrorMessage(err, 'Thông tin đăng nhập không đúng.'));
+            const lockedUntilValue = err?.response?.data?.lockedUntil;
+            if (lockedUntilValue) {
+                setLockedUntil(lockedUntilValue);
+                setLockRemainingSeconds(getLoginLockRemainingSeconds(lockedUntilValue));
+            }
+            const message = getApiErrorMessage(err, 'Thông tin đăng nhập không đúng.');
+            setCanResendVerification(err?.response?.status === 403 && message.includes('xác nhận email'));
+            setError(message);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleResendVerification = async () => {
+        const email = account.trim().toLowerCase();
+        const emailError = validateEmail(email);
+        if (emailError) {
+            setError(emailError);
+            return;
+        }
+
+        setResendingVerification(true);
+        setSuccess('');
+        try {
+            const res = await resendVerificationEmailAPI({ email });
+            setSuccess(res?.message || 'Nếu tài khoản cần xác nhận, hệ thống đã gửi lại email xác nhận.');
+            setCanResendVerification(false);
+        } catch (err) {
+            setError(getApiErrorMessage(err, 'Không thể gửi lại email xác nhận.'));
+        } finally {
+            setResendingVerification(false);
         }
     };
 
@@ -72,11 +136,25 @@ const LoginScreen = ({ navigation }) => {
                                 <Text style={styles.errorText}>{error}</Text>
                             </View>
                         )}
+                        {!!success && (
+                            <View style={styles.successBox}>
+                                <Ionicons name="checkmark-circle-outline" size={15} color="#15803D" style={{ marginRight: 6 }} />
+                                <Text style={styles.successText}>{success}</Text>
+                            </View>
+                        )}
+                        {lockRemainingSeconds > 0 && (
+                            <View style={styles.warningBox}>
+                                <Ionicons name="time-outline" size={15} color="#B45309" style={{ marginRight: 6 }} />
+                                <Text style={styles.warningText}>
+                                    Tài khoản đang bị tạm khóa. Thử lại sau {formatLoginLockRemaining(lockRemainingSeconds)}.
+                                </Text>
+                            </View>
+                        )}
 
-                        <Text style={styles.label}>Email hoặc số điện thoại</Text>
+                        <Text style={styles.label}>Email</Text>
                         <TextInput
                             style={styles.input}
-                            placeholder="example@email.com hoặc 0909..."
+                            placeholder="example@email.com"
                             placeholderTextColor="#A0AEC0"
                             value={account}
                             onChangeText={setAccount}
@@ -106,13 +184,35 @@ const LoginScreen = ({ navigation }) => {
                         <TouchableOpacity
                             style={[styles.btn, loading && styles.btnDisabled]}
                             onPress={handleLogin}
-                            disabled={loading}
+                            disabled={loading || lockRemainingSeconds > 0}
                         >
                             {loading ? (
                                 <ActivityIndicator color="#FFFFFF" />
                             ) : (
                                 <Text style={styles.btnText}>Vào Khám Ngay</Text>
                             )}
+                        </TouchableOpacity>
+
+                        {canResendVerification && (
+                            <TouchableOpacity
+                                style={[styles.secondaryBtn, resendingVerification && styles.btnDisabled]}
+                                onPress={handleResendVerification}
+                                disabled={resendingVerification}
+                            >
+                                {resendingVerification ? (
+                                    <ActivityIndicator color="#2563EB" />
+                                ) : (
+                                    <Text style={styles.secondaryBtnText}>Gửi lại email xác nhận</Text>
+                                )}
+                            </TouchableOpacity>
+                        )}
+
+                        <TouchableOpacity
+                            style={styles.forgotLink}
+                            onPress={() => navigation.navigate('ClientForgotPassword')}
+                            disabled={loading}
+                        >
+                            <Text style={styles.forgotLinkText}>Quên mật khẩu?</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
@@ -207,6 +307,28 @@ const styles = StyleSheet.create({
         marginBottom: 16,
     },
     errorText: { color: '#B91C1C', fontSize: 13, flex: 1, lineHeight: 18 },
+    successBox: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: '#F0FDF4',
+        borderLeftWidth: 4,
+        borderLeftColor: '#22C55E',
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 16,
+    },
+    successText: { color: '#15803D', fontSize: 13, flex: 1, lineHeight: 18 },
+    warningBox: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: '#FFFBEB',
+        borderLeftWidth: 4,
+        borderLeftColor: '#F59E0B',
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 16,
+    },
+    warningText: { color: '#B45309', fontSize: 13, flex: 1, lineHeight: 18 },
     label: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 6 },
     input: {
         backgroundColor: '#F9FAFB',
@@ -239,7 +361,18 @@ const styles = StyleSheet.create({
     },
     btnDisabled: { opacity: 0.6 },
     btnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+    secondaryBtn: {
+        borderWidth: 1,
+        borderColor: '#2563EB',
+        borderRadius: 10,
+        paddingVertical: 12,
+        alignItems: 'center',
+        marginTop: 10,
+    },
+    secondaryBtnText: { color: '#2563EB', fontWeight: '700', fontSize: 14 },
     link: { marginTop: 16, alignItems: 'center' },
+    forgotLink: { marginTop: 12, alignItems: 'center' },
+    forgotLinkText: { color: '#2563EB', fontSize: 14, fontWeight: '700' },
     linkText: { color: '#6B7280', fontSize: 14 },
     linkBold: { color: '#2563EB', fontWeight: '700' },
     adminLink: { marginTop: 12, alignItems: 'center' },

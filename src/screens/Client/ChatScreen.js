@@ -3,9 +3,9 @@ import {
     View, Text, TextInput, TouchableOpacity, FlatList,
     StyleSheet, ActivityIndicator, KeyboardAvoidingView,
     Platform, StatusBar, Image, Modal, Alert,
-    TouchableWithoutFeedback,
+    TouchableWithoutFeedback, Keyboard,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -16,6 +16,7 @@ import useAuth from '../../hooks/useAuth';
 import { useSettings } from '../../store/SettingsContext';
 import { cancelChatResponseAPI, speechToTextAPI, textToSpeechAPI } from '../../services/apis/Client/chat.api';
 import ThinkingBubble from '../../components/Client/ThinkingBubble';
+import { CHAT_LIMITS } from '../../utils/constants';
 
 const getGreeting = () => {
     const h = new Date().getHours();
@@ -36,6 +37,8 @@ const ChatScreen = ({ navigation }) => {
     const [voiceState, setVoiceState] = useState('idle');
     const [copiedMessageId, setCopiedMessageId] = useState(null);
     const [messageActionSheet, setMessageActionSheet] = useState(null);
+    const [inputError, setInputError] = useState('');
+    const [keyboardInset, setKeyboardInset] = useState(0);
     const flatListRef = useRef(null);
     const textAbortControllerRef = useRef(null);
     const activeConvIdRef = useRef(null);
@@ -44,15 +47,17 @@ const ChatScreen = ({ navigation }) => {
     const voicePlaybackResolverRef = useRef(null);
     const voiceCanceledRef = useRef(false);
     const voiceTTSAbortControllerRef = useRef(null);
+    const audioUrlCacheRef = useRef(new Map());
     const copyFeedbackTimerRef = useRef(null);
 
     const {
         messages, activeConversation,
-        sendMessage, appendAssistantMessage, startNewConversation,
+        sendMessage, appendAssistantMessage, updateMessageAudioUrl, startNewConversation,
         sending, loadingMessages, isLimitReached, error,
     } = useChat();
     const { user, handleLogout } = useAuth();
     const { fontSize, isDarkMode } = useSettings();
+    const insets = useSafeAreaInsets();
 
     const bg = isDarkMode ? '#0F172A' : '#F0F4F8';
     const cardBg = isDarkMode ? '#1E293B' : '#FFFFFF';
@@ -67,12 +72,32 @@ const ChatScreen = ({ navigation }) => {
     const msgFontSize = fontSize === 'small' ? 13 : fontSize === 'large' ? 17 : 15;
 
     const initials = user?.fullName?.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() ?? 'U';
-    const isVoiceBusy = voiceState === 'recording' || voiceState === 'transcribing' || voiceState === 'thinking' || voiceState === 'speaking';
-    const isThinking = sending || voiceState === 'thinking';
+    const isVoiceBusy = voiceState === 'recording' || voiceState === 'transcribing' || voiceState === 'thinking' || voiceState === 'preparing' || voiceState === 'speaking';
+    const hasStreamingAssistantText = messages.some((message) => (
+        message.role === 'assistant' && message.streaming && message.content?.trim()
+    ));
+    const isThinking = (sending && !hasStreamingAssistantText) || voiceState === 'thinking';
 
     useEffect(() => {
         if (messages.length > 0) flatListRef.current?.scrollToEnd({ animated: true });
     }, [messages, isThinking]);
+
+    useEffect(() => {
+        if (Platform.OS !== 'android') return undefined;
+
+        const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
+            const height = event.endCoordinates?.height || 0;
+            setKeyboardInset(Math.max(height - insets.bottom, 0));
+        });
+        const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+            setKeyboardInset(0);
+        });
+
+        return () => {
+            showSubscription.remove();
+            hideSubscription.remove();
+        };
+    }, [insets.bottom]);
 
     useEffect(() => () => {
         textAbortControllerRef.current?.abort();
@@ -93,6 +118,7 @@ const ChatScreen = ({ navigation }) => {
         if (voiceState === 'recording') return 'Đang ghi âm... Nhấn micro để dừng và gửi.';
         if (voiceState === 'transcribing') return 'Đang chuyển giọng nói thành văn bản...';
         if (voiceState === 'thinking') return 'Bác sĩ Ảo đang trả lời...';
+        if (voiceState === 'preparing') return 'Đang chuẩn bị giọng đọc...';
         if (voiceState === 'speaking') return 'Bác sĩ Ảo đang đọc câu trả lời...';
         return '';
     };
@@ -120,14 +146,17 @@ const ChatScreen = ({ navigation }) => {
         setVoiceState('idle');
     };
 
-    const playAssistantVoice = async (text, conversationId) => {
+    const getAudioCacheKey = (conversationId, text) => `${conversationId || 'no-conversation'}::${text || ''}`;
+
+    const playAssistantVoice = async (text, conversationId, initialAudioUrl, messageId) => {
         if (!text?.trim() || !conversationId) return;
 
         voiceCanceledRef.current = false;
         const ttsController = new AbortController();
         voiceTTSAbortControllerRef.current = ttsController;
 
-        setVoiceState('speaking');
+        const cacheKey = getAudioCacheKey(conversationId, text);
+        setVoiceState(initialAudioUrl || audioUrlCacheRef.current.get(cacheKey) ? 'speaking' : 'preparing');
         try {
             if (responseSoundRef.current) {
                 await responseSoundRef.current.unloadAsync().catch(() => { });
@@ -136,11 +165,18 @@ const ChatScreen = ({ navigation }) => {
 
             if (voiceCanceledRef.current) return;
 
-            const res = await textToSpeechAPI(text, conversationId, { signal: ttsController.signal });
+            let audioUrl = initialAudioUrl || audioUrlCacheRef.current.get(cacheKey);
 
-            if (voiceCanceledRef.current) return;
+            if (!audioUrl) {
+                const res = await textToSpeechAPI(text, conversationId, { signal: ttsController.signal });
+                if (voiceCanceledRef.current) return;
+                audioUrl = res?.audio_url || res?.data?.audio_url;
+                if (audioUrl) {
+                    audioUrlCacheRef.current.set(cacheKey, audioUrl);
+                    updateMessageAudioUrl?.(messageId, audioUrl, text);
+                }
+            }
 
-            const audioUrl = res?.audio_url || res?.data?.audio_url;
             if (!audioUrl) throw new Error('Không có audio_url');
 
             await Audio.setAudioModeAsync({
@@ -151,6 +187,7 @@ const ChatScreen = ({ navigation }) => {
             });
 
             if (voiceCanceledRef.current) return;
+            setVoiceState('speaking');
 
             const { sound } = await Audio.Sound.createAsync(
                 { uri: audioUrl },
@@ -203,6 +240,11 @@ const ChatScreen = ({ navigation }) => {
         const text = inputText.trim();
         if (!text && !attachedImage) return;
         if (isTextChatRunning || isVoiceBusy || isLimitReached) return;
+        if (text.length > CHAT_LIMITS.MAX_MESSAGE_LENGTH) {
+            setInputError(`Tin nhắn không được vượt quá ${CHAT_LIMITS.MAX_MESSAGE_LENGTH} ký tự.`);
+            return;
+        }
+        setInputError('');
 
         let conv = activeConversation;
         if (!conv) conv = await startNewConversation('qwen');
@@ -237,6 +279,11 @@ const ChatScreen = ({ navigation }) => {
 
     const handleResend = async (text) => {
         if (!text?.trim() || isTextChatRunning || isVoiceBusy || isLimitReached) return;
+        if (text.trim().length > CHAT_LIMITS.MAX_MESSAGE_LENGTH) {
+            setInputError(`Tin nhắn không được vượt quá ${CHAT_LIMITS.MAX_MESSAGE_LENGTH} ký tự.`);
+            return;
+        }
+        setInputError('');
         const controller = new AbortController();
         textAbortControllerRef.current = controller;
         activeConvIdRef.current = activeConversation?._id || null;
@@ -279,7 +326,7 @@ const ChatScreen = ({ navigation }) => {
 
     const openMessageActions = (item, text, messageId) => {
         if (!text?.trim()) return;
-        setMessageActionSheet({ id: messageId, role: item.role, text });
+        setMessageActionSheet({ id: messageId, role: item.role, text, audioUrl: item.audio_url });
     };
 
     const handleStopTextChat = () => {
@@ -381,7 +428,7 @@ const ChatScreen = ({ navigation }) => {
             await stopVoiceRecording();
             return;
         }
-        if (voiceState === 'speaking') {
+        if (voiceState === 'speaking' || voiceState === 'preparing') {
             await stopAssistantVoice();
             return;
         }
@@ -416,6 +463,7 @@ const ChatScreen = ({ navigation }) => {
         const isUser = item.role === 'user';
         const hasImage = item.content?.includes('[Image attached]');
         const textContent = item.content?.replace('\n[Image attached]', '').replace('[Image attached]', '').trim();
+        if (!isUser && item.streaming && !textContent) return null;
         if (!isUser && textContent === STOPPED_RESPONSE_MESSAGE) {
             return (
                 <View style={s.systemMsgRow}>
@@ -460,7 +508,7 @@ const ChatScreen = ({ navigation }) => {
                                 {textContent}
                             </Text>
                         )}
-                        {item.createdAt && (
+                        {item.createdAt && !!textContent && !item.streaming && (
                             <Text style={[s.timestamp, isUser && s.timestampUser]}>
                                 {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </Text>
@@ -517,11 +565,18 @@ const ChatScreen = ({ navigation }) => {
                 <TextInput
                     style={[s.inputField, { color: textPrimary, fontSize: msgFontSize }]}
                     value={inputText}
-                    onChangeText={setInputText}
+                    onChangeText={(value) => {
+                        setInputText(value);
+                        if (value.length > CHAT_LIMITS.MAX_MESSAGE_LENGTH) {
+                            setInputError(`Tin nhắn không được vượt quá ${CHAT_LIMITS.MAX_MESSAGE_LENGTH} ký tự.`);
+                        } else if (inputError) {
+                            setInputError('');
+                        }
+                    }}
                     placeholder="Mô tả triệu chứng, đặt câu hỏi sức khỏe..."
                     placeholderTextColor={placeholderColor}
                     multiline
-                    maxLength={1000}
+                    maxLength={CHAT_LIMITS.MAX_MESSAGE_LENGTH}
                     onSubmitEditing={handleSend}
                     editable={!isTextChatRunning && !isVoiceBusy}
                 />
@@ -562,6 +617,17 @@ const ChatScreen = ({ navigation }) => {
                         }
                     </TouchableOpacity>
                 </View>
+                {(!!inputError || inputText.length > CHAT_LIMITS.MAX_MESSAGE_LENGTH * 0.85) && (
+                    <View style={s.charCountRow}>
+                        {!!inputError ? (
+                            <Text style={s.inputErrorText}>{inputError}</Text>
+                        ) : (
+                            <Text style={[s.charCountText, { color: textMuted }]}>
+                                {inputText.length}/{CHAT_LIMITS.MAX_MESSAGE_LENGTH}
+                            </Text>
+                        )}
+                    </View>
+                )}
             </View>
         );
     };
@@ -569,7 +635,7 @@ const ChatScreen = ({ navigation }) => {
     const sheetIsUserMessage = messageActionSheet?.role === 'user';
     const sheetEditDisabled = isTextChatRunning || isVoiceBusy;
     const sheetResendDisabled = sheetEditDisabled || isLimitReached;
-    const sheetVoiceDisabled = voiceState === 'recording' || voiceState === 'transcribing' || voiceState === 'thinking';
+    const sheetVoiceDisabled = voiceState === 'recording' || voiceState === 'transcribing' || voiceState === 'thinking' || voiceState === 'preparing' || voiceState === 'speaking';
 
     return (
         <SafeAreaView style={[s.safe, { backgroundColor: bg }]} edges={['top', 'bottom']}>
@@ -585,7 +651,7 @@ const ChatScreen = ({ navigation }) => {
                     <Text style={[s.headerBrandName, { color: textPrimary }]}>Bác sĩ Ảo</Text>
                 </View>
                 <View style={{ flex: 1 }} />
-                <TouchableOpacity style={[s.planPill, { borderColor }]} onPress={() => navigation.navigate('ClientUpgrade')}>
+                <TouchableOpacity style={[s.planPill, { borderColor }]} onPress={() => navigation.navigate('ClientUpgrade', { from: 'Chat' })}>
                     <Text style={[s.planPillFree, { color: textMuted }]}>Gói miễn phí</Text>
                     <View style={s.planDivider} />
                     <Text style={s.planPillUpgrade}>Nâng cấp</Text>
@@ -601,13 +667,23 @@ const ChatScreen = ({ navigation }) => {
                 </TouchableOpacity>
             </View>
 
-            <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+            <KeyboardAvoidingView
+                style={{ flex: 1 }}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
+            >
                 {loadingMessages ? (
                     <View style={s.centered}>
                         <ActivityIndicator color="#2563EB" size="large" />
                     </View>
                 ) : messages.length === 0 ? (
-                    <View style={s.welcome}>
+                    <View style={[
+                        s.welcome,
+                        keyboardInset > 0 && Platform.OS === 'android' && {
+                            justifyContent: 'flex-end',
+                            paddingBottom: keyboardInset + 10,
+                        },
+                    ]}>
                         <View style={s.sparkleBox}>
                             <Ionicons name="sparkles" size={28} color="#2563EB" />
                         </View>
@@ -645,7 +721,13 @@ const ChatScreen = ({ navigation }) => {
                             ListFooterComponent={isThinking ? <ThinkingBubble isDarkMode={isDarkMode} /> : null}
                             onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
                         />
-                        <View style={[s.inputArea, { backgroundColor: bg }]}>
+                        <View style={[
+                            s.inputArea,
+                            {
+                                backgroundColor: bg,
+                                marginBottom: Platform.OS === 'android' ? keyboardInset : 0,
+                            },
+                        ]}>
                             {InputCard()}
                             {!!error && (
                                 <View style={[s.errorBanner, { borderColor: '#FCA5A5', backgroundColor: isDarkMode ? '#2A1214' : '#FEF2F2' }]}>
@@ -708,8 +790,10 @@ const ChatScreen = ({ navigation }) => {
                             style={[s.messageSheetOption, sheetVoiceDisabled && s.messageSheetOptionDisabled]}
                             onPress={() => {
                                 const text = messageActionSheet?.text;
+                                const audioUrl = messageActionSheet?.audioUrl;
+                                const messageId = messageActionSheet?.id;
                                 setMessageActionSheet(null);
-                                playAssistantVoice(text, activeConversation?._id);
+                                playAssistantVoice(text, activeConversation?._id, audioUrl, messageId);
                             }}
                             disabled={sheetVoiceDisabled}
                         >
@@ -782,20 +866,20 @@ const ChatScreen = ({ navigation }) => {
                             <Ionicons name="add-circle-outline" size={18} color={textMuted} />
                             <Text style={[s.userMenuItemText, { color: textPrimary }]}>Khám mới</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={s.userMenuItem} onPress={() => { setShowUserMenu(false); navigation.navigate('ClientSettings'); }}>
+                        <TouchableOpacity style={s.userMenuItem} onPress={() => { setShowUserMenu(false); navigation.navigate('ClientSettings', { from: 'Chat' }); }}>
                             <Ionicons name="settings-outline" size={18} color={textMuted} />
                             <Text style={[s.userMenuItemText, { color: textPrimary }]}>Cài đặt</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={s.userMenuItem} onPress={() => { setShowUserMenu(false); navigation.navigate('ClientUpgrade'); }}>
+                        <TouchableOpacity style={s.userMenuItem} onPress={() => { setShowUserMenu(false); navigation.navigate('ClientUpgrade', { from: 'Chat' }); }}>
                             <Ionicons name="rocket-outline" size={18} color={textMuted} />
                             <Text style={[s.userMenuItemText, { color: textPrimary }]}>Nâng cấp gói</Text>
                         </TouchableOpacity>
                         <View style={[s.userMenuDivider, { backgroundColor: borderColor }]} />
-                        <TouchableOpacity style={s.userMenuItem} onPress={() => { setShowUserMenu(false); navigation.navigate('ClientUsagePolicy'); }}>
+                        <TouchableOpacity style={s.userMenuItem} onPress={() => { setShowUserMenu(false); navigation.navigate('ClientUsagePolicy', { from: 'Chat' }); }}>
                             <Ionicons name="document-text-outline" size={18} color={textMuted} />
                             <Text style={[s.userMenuItemText, { color: textPrimary }]}>Chính sách sử dụng</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={s.userMenuItem} onPress={() => { setShowUserMenu(false); navigation.navigate('ClientPrivacyPolicy'); }}>
+                        <TouchableOpacity style={s.userMenuItem} onPress={() => { setShowUserMenu(false); navigation.navigate('ClientPrivacyPolicy', { from: 'Chat' }); }}>
                             <Ionicons name="shield-outline" size={18} color={textMuted} />
                             <Text style={[s.userMenuItemText, { color: textPrimary }]}>Chính sách quyền riêng tư</Text>
                         </TouchableOpacity>
@@ -857,33 +941,36 @@ const s = StyleSheet.create({
     welcomeTitle: { fontSize: 24, fontWeight: '800', textAlign: 'center', lineHeight: 32 },
     welcomeSub: { fontSize: 14, textAlign: 'center', lineHeight: 22, paddingHorizontal: 10 },
     inputCard: {
-        width: '100%', borderRadius: 16, borderWidth: 1,
-        shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08,
-        shadowRadius: 12, elevation: 4,
+        width: '100%', borderRadius: 14, borderWidth: 1,
+        shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.07,
+        shadowRadius: 9, elevation: 3,
         overflow: 'hidden',
     },
     voiceStatus: {
         flexDirection: 'row', alignItems: 'center', gap: 8,
-        marginHorizontal: 10, marginTop: 10,
-        paddingHorizontal: 12, paddingVertical: 9,
-        borderRadius: 12, borderWidth: 1,
+        marginHorizontal: 9, marginTop: 8,
+        paddingHorizontal: 10, paddingVertical: 7,
+        borderRadius: 10, borderWidth: 1,
     },
     voiceStatusInfo: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
     voiceStatusRecording: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
     voiceStatusText: { flex: 1, fontSize: 12, fontWeight: '600', lineHeight: 17 },
     inputField: {
-        paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8,
-        minHeight: 60, maxHeight: 120, fontSize: 15,
+        paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6,
+        minHeight: 44, maxHeight: 96, fontSize: 15,
     },
     imgPreviewRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 6 },
     imgPreview: { width: 52, height: 52, borderRadius: 8 },
     imgRemove: { position: 'absolute', left: 44, top: -6 },
     inputToolbar: {
         flexDirection: 'row', alignItems: 'center',
-        paddingHorizontal: 10, paddingVertical: 8,
+        paddingHorizontal: 8, paddingVertical: 5,
         borderTopWidth: 1, gap: 4,
     },
-    toolBtn: { padding: 6 },
+    charCountRow: { alignItems: 'flex-end', paddingHorizontal: 12, paddingBottom: 6 },
+    charCountText: { fontSize: 11 },
+    inputErrorText: { color: '#DC2626', fontSize: 11, fontWeight: '600' },
+    toolBtn: { padding: 5 },
     micRecordingBtn: { backgroundColor: '#EF4444', borderRadius: 16 },
     modelPill: {
         flexDirection: 'row', alignItems: 'center', gap: 4,
@@ -892,17 +979,17 @@ const s = StyleSheet.create({
     },
     modelPillText: { fontSize: 12, fontWeight: '500' },
     sendBtn: {
-        width: 34, height: 34, borderRadius: 17,
+        width: 32, height: 32, borderRadius: 16,
         alignItems: 'center', justifyContent: 'center', marginLeft: 4,
     },
     sendBtnActive: { backgroundColor: '#2563EB' },
     sendBtnIdle: { backgroundColor: 'transparent' },
     sendBtnStop: { backgroundColor: '#EF4444' },
 
-    disclaimer: { fontSize: 12, textAlign: 'center', marginTop: 2 },
+    disclaimer: { fontSize: 11, textAlign: 'center', marginTop: 1 },
     centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     msgList: { padding: 14, paddingBottom: 4 },
-    inputArea: { paddingHorizontal: 14, paddingBottom: 8, paddingTop: 4 },
+    inputArea: { paddingHorizontal: 14, paddingBottom: 6, paddingTop: 2 },
     msgRow: { flexDirection: 'row', marginBottom: 10, alignItems: 'flex-start' },
     msgRowUser: { justifyContent: 'flex-end' },
     msgRowBot: { justifyContent: 'flex-start' },

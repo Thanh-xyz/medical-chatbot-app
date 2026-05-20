@@ -18,13 +18,19 @@ import { useSettings } from '../../store/SettingsContext';
 import { useChatContext } from '../../store/ChatContext';
 import { updateClientAccountAPI } from '../../services/apis/Client/myAccount.api';
 import { uploadImageAPI } from '../../services/apis/Client/upload.api';
+import { validateFullName, validatePhone } from '../../utils/validation';
+import { goBackOrNavigate } from '../../utils/navigation';
 
-const SettingScreen = ({ navigation }) => {
+const SettingScreen = ({ navigation, route }) => {
     const { user, handleLogout, updateUser } = useAuth();
     const { fontSize, setFontSize, isDarkMode, setIsDarkMode } = useSettings();
     const { deleteAllConversations } = useChatContext();
 
     const [fullName, setFullName] = useState(user?.fullName ?? '');
+    const [yearOfBirth, setYearOfBirth] = useState(user?.yearOfBirth ?? '');
+    const [sex, setSex] = useState(user?.sex ?? 'MALE');
+    const [address, setAddress] = useState(user?.address ?? '');
+    const [phone, setPhone] = useState(user?.phone ?? '');
     const [avatarUri, setAvatarUri] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -32,6 +38,10 @@ const SettingScreen = ({ navigation }) => {
 
     useEffect(() => {
         if (user?.fullName) setFullName(user.fullName);
+        setYearOfBirth(user?.yearOfBirth ?? '');
+        setSex(user?.sex || 'MALE');
+        setAddress(user?.address ?? '');
+        setPhone(user?.phone ?? '');
     }, [user]);
 
     const bg = isDarkMode ? '#0F172A' : '#F5F9FC';
@@ -61,18 +71,34 @@ const SettingScreen = ({ navigation }) => {
     };
 
     const handleSaveProfile = async () => {
-        if (!fullName.trim()) {
-            Alert.alert('Lỗi', 'Vui lòng nhập họ và tên.');
+        const fullNameError = validateFullName(fullName);
+        if (fullNameError) {
+            Alert.alert('Lỗi', fullNameError);
             return;
         }
-        const nameChanged = fullName.trim() !== user?.fullName;
-        if (!nameChanged && !avatarUri) {
+        const phoneError = validatePhone(phone);
+        if (phoneError) {
+            Alert.alert('Lỗi', phoneError);
+            return;
+        }
+        if (yearOfBirth.trim() && !/^\d{4}$/.test(yearOfBirth.trim())) {
+            Alert.alert('Lỗi', 'Năm sinh phải gồm 4 chữ số.');
+            return;
+        }
+        const payload = {
+            fullName: fullName.trim(),
+            yearOfBirth: yearOfBirth.trim(),
+            sex,
+            address: address.trim(),
+            phone: phone.trim(),
+        };
+        const hasProfileChange = Object.keys(payload).some((key) => String(payload[key] || '') !== String(user?.[key] || ''));
+        if (!hasProfileChange && !avatarUri) {
             Alert.alert('Thông báo', 'Thông tin không có gì thay đổi!');
             return;
         }
         setIsSaving(true);
         try {
-            const payload = { fullName: fullName.trim() };
             if (avatarUri) {
                 const uploadRes = await uploadImageAPI(avatarUri);
                 payload.avatar = uploadRes.url;
@@ -136,7 +162,15 @@ const SettingScreen = ({ navigation }) => {
     return (
         <SafeAreaView style={[styles.safe, { backgroundColor: bg }]}>
             <View style={[styles.header, { backgroundColor: cardBg, borderBottomColor: cardBorder }]}>
-                <View>
+                {!!route?.params?.from && (
+                    <TouchableOpacity
+                        style={styles.headerBackBtn}
+                        onPress={() => goBackOrNavigate(navigation, route.params.from)}
+                    >
+                        <Ionicons name="arrow-back-outline" size={18} color={textPrimary} />
+                    </TouchableOpacity>
+                )}
+                <View style={{ flex: 1 }}>
                     <Text style={[styles.headerTitle, { color: textPrimary }]}>Cài đặt</Text>
                     <Text style={[styles.headerSubtitle, { color: textMuted }]}>
                         Quản lý hồ sơ, giao diện và dữ liệu của bạn.
@@ -183,7 +217,7 @@ const SettingScreen = ({ navigation }) => {
                         <View style={{ flex: 1 }}>
                             <Text style={[styles.sectionTitle, { color: textPrimary }]}>Thông tin của bạn</Text>
                             <Text style={[styles.sectionDesc, { color: textMuted }]}>
-                                Cập nhật tên hiển thị trong ứng dụng.
+                                Cập nhật hồ sơ cá nhân dùng trong ứng dụng.
                             </Text>
                         </View>
                     </View>
@@ -208,6 +242,69 @@ const SettingScreen = ({ navigation }) => {
                         />
                     </View>
                     <Text style={[styles.hintText, { color: textMuted }]}>Tên tài khoản không thể thay đổi.</Text>
+
+                    <Text style={[styles.label, { color: isDarkMode ? '#CBD5E1' : '#374151' }]}>Số điện thoại</Text>
+                    <View style={[styles.inputWrapper, { backgroundColor: inputBg, borderColor: inputBorder }]}>
+                        <TextInput
+                            style={[styles.input, { color: inputText }]}
+                            value={phone}
+                            onChangeText={setPhone}
+                            placeholder="Nhập số điện thoại..."
+                            placeholderTextColor={textMuted}
+                            keyboardType="phone-pad"
+                        />
+                    </View>
+
+                    <Text style={[styles.label, { color: isDarkMode ? '#CBD5E1' : '#374151' }]}>Năm sinh</Text>
+                    <View style={[styles.inputWrapper, { backgroundColor: inputBg, borderColor: inputBorder }]}>
+                        <TextInput
+                            style={[styles.input, { color: inputText }]}
+                            value={yearOfBirth}
+                            onChangeText={setYearOfBirth}
+                            placeholder="Ví dụ: 1995"
+                            placeholderTextColor={textMuted}
+                            keyboardType="number-pad"
+                            maxLength={4}
+                        />
+                    </View>
+
+                    <Text style={[styles.label, { color: isDarkMode ? '#CBD5E1' : '#374151' }]}>Giới tính</Text>
+                    <View style={styles.sexRow}>
+                        {[
+                            { value: 'MALE', label: 'Nam' },
+                            { value: 'FEMALE', label: 'Nữ' },
+                            { value: 'OTHER', label: 'Khác' },
+                        ].map((option) => (
+                            <TouchableOpacity
+                                key={option.value}
+                                style={[
+                                    styles.sexBtn,
+                                    sex === option.value
+                                        ? styles.sexBtnActive
+                                        : [styles.sexBtnNormal, { borderColor: inputBorder, backgroundColor: inputBg }],
+                                ]}
+                                onPress={() => setSex(option.value)}
+                            >
+                                <Text style={[
+                                    styles.sexBtnText,
+                                    { color: sex === option.value ? '#FFFFFF' : inputText },
+                                ]}>
+                                    {option.label}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+
+                    <Text style={[styles.label, { color: isDarkMode ? '#CBD5E1' : '#374151' }]}>Địa chỉ</Text>
+                    <View style={[styles.inputWrapper, { backgroundColor: inputBg, borderColor: inputBorder }]}>
+                        <TextInput
+                            style={[styles.input, { color: inputText }]}
+                            value={address}
+                            onChangeText={setAddress}
+                            placeholder="Nhập địa chỉ..."
+                            placeholderTextColor={textMuted}
+                        />
+                    </View>
 
                     <TouchableOpacity
                         style={[styles.saveBtn, isSaving && { opacity: 0.6 }]}
@@ -319,17 +416,17 @@ const SettingScreen = ({ navigation }) => {
                 </View>
                 <View style={[styles.card, { backgroundColor: cardBg, borderColor: cardBorder }]}>
                     <Text style={[styles.sectionTitle, { color: textPrimary }]}>Tìm hiểu thêm</Text>
-                    <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate('ClientUpgrade')}>
+                    <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate('ClientUpgrade', { from: 'ClientSettings' })}>
                         <Ionicons name="rocket-outline" size={18} color={textMuted} style={{ marginRight: 10 }} />
                         <Text style={[styles.linkText, { color: textPrimary }]}>Nâng cấp gói</Text>
                         <Ionicons name="chevron-forward-outline" size={16} color={textMuted} />
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate('ClientUsagePolicy')}>
+                    <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate('ClientUsagePolicy', { from: 'ClientSettings' })}>
                         <Ionicons name="document-text-outline" size={18} color={textMuted} style={{ marginRight: 10 }} />
                         <Text style={[styles.linkText, { color: textPrimary }]}>Chính sách sử dụng</Text>
                         <Ionicons name="chevron-forward-outline" size={16} color={textMuted} />
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate('ClientPrivacyPolicy')}>
+                    <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate('ClientPrivacyPolicy', { from: 'ClientSettings' })}>
                         <Ionicons name="shield-outline" size={18} color={textMuted} style={{ marginRight: 10 }} />
                         <Text style={[styles.linkText, { color: textPrimary }]}>Chính sách quyền riêng tư</Text>
                         <Ionicons name="chevron-forward-outline" size={16} color={textMuted} />
@@ -359,9 +456,20 @@ const SettingScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
     safe: { flex: 1 },
     header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
         paddingHorizontal: 20,
         paddingVertical: 16,
         borderBottomWidth: 1,
+    },
+    headerBackBtn: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(0,0,0,0.06)',
     },
     headerTitle: { fontSize: 22, fontWeight: '700' },
     headerSubtitle: { fontSize: 13, marginTop: 2 },
@@ -427,6 +535,17 @@ const styles = StyleSheet.create({
     },
     input: { paddingVertical: 12, fontSize: 15 },
     hintText: { fontSize: 11, marginBottom: 16, marginTop: -8 },
+    sexRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+    sexBtn: {
+        flex: 1,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderRadius: 12,
+        paddingVertical: 10,
+    },
+    sexBtnActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
+    sexBtnNormal: {},
+    sexBtnText: { fontSize: 13, fontWeight: '700' },
 
     saveBtn: {
         flexDirection: 'row',

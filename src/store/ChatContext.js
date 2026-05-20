@@ -4,6 +4,7 @@ import {
     createConversation,
     getMessages,
     sendMessages,
+    streamMessageFromAPI,
     deleteConversation,
     deleteAllConversations as deleteAllConversationsRequest,
     renameConversation as renameConversationRequest,
@@ -100,6 +101,15 @@ export const ChatProvider = ({ children }) => {
         }]);
     }, []);
 
+    const updateMessageAudioUrl = useCallback((messageId, audioUrl, text) => {
+        if (!audioUrl) return;
+        setMessages((prev) => prev.map((message) => {
+            const sameId = messageId && message._id === messageId;
+            const sameText = text && message.role === 'assistant' && message.content === text;
+            return sameId || sameText ? { ...message, audio_url: audioUrl } : message;
+        }));
+    }, []);
+
     const sendMessage = useCallback(async (content, model = 'qwen', options = {}) => {
         if (!content?.trim() || isLimitReached) return null;
 
@@ -126,41 +136,77 @@ export const ChatProvider = ({ children }) => {
             } else {
                 options.onConversationReady?.(currentConversation._id);
             }
-            setMessages((prev) => [...prev, userMsg]);
-            const data = await sendMessages(currentConversation._id, content, model, options);
-            if (Array.isArray(data)) {
-                setMessages((prev) =>
-                    deduplicateMsgs([...prev.filter((m) => m._id !== userMsg._id), ...data])
+            const assistantMsgId = `local_bot_stream_${Date.now()}`;
+            setMessages((prev) => [...prev, userMsg, {
+                _id: assistantMsgId,
+                role: 'assistant',
+                content: '',
+                createdAt: new Date().toISOString(),
+                streaming: true,
+            }]);
+
+            let streamedResponse = '';
+            let data = null;
+
+            try {
+                await streamMessageFromAPI(
+                    currentConversation._id,
+                    content,
+                    model,
+                    (chunk) => {
+                        streamedResponse += chunk;
+                        setMessages((prev) => prev.map((msg) => (
+                            msg._id === assistantMsgId
+                                ? { ...msg, content: streamedResponse, streaming: true }
+                                : msg
+                        )));
+                    },
+                    options
                 );
-            } else {
-                if (data.response?.includes('Hết hạn mức')) {
-                    setIsLimitReached(true);
-                } else {
-                    const botMsg = {
-                        _id: `local_bot_${Date.now()}`,
-                        role: 'assistant',
-                        content: data.response ?? 'Không có phản hồi.',
-                        risk_level: data.risk_level,
-                        sources: data.sources,
-                        blocked: data.blocked,
-                        warnings: data.warnings,
-                        createdAt: new Date().toISOString(),
-                    };
-                    setMessages((prev) => deduplicateMsgs([...prev, botMsg]));
-                    setConversations((prev) =>
-                        prev.map((conversation) =>
-                            conversation._id === currentConversation._id
-                                ? { ...conversation, title: content.substring(0, 50), updatedAt: new Date().toISOString() }
-                                : conversation
-                        )
-                    );
-                }
+                data = { response: streamedResponse };
+            } catch (streamError) {
+                const isCancelled = streamError?.name === 'CanceledError'
+                    || streamError?.name === 'AbortError'
+                    || streamError?.code === 'ERR_CANCELED';
+                if (isCancelled) throw streamError;
+
+                const fallbackData = await sendMessages(currentConversation._id, content, model, options);
+                data = fallbackData;
+                streamedResponse = Array.isArray(fallbackData)
+                    ? fallbackData.find((msg) => msg.role === 'assistant')?.content || ''
+                    : fallbackData?.response;
             }
+
+            setMessages((prev) => prev.map((msg) => (
+                msg._id === assistantMsgId
+                    ? {
+                        ...msg,
+                        content: streamedResponse || data?.response || 'Không có phản hồi.',
+                        risk_level: data?.risk_level,
+                        sources: data?.sources,
+                        blocked: data?.blocked,
+                        warnings: data?.warnings,
+                        streaming: false,
+                    }
+                    : msg
+            )));
+
+            if (data?.response?.includes('Hết hạn mức')) {
+                setIsLimitReached(true);
+            }
+
+            setConversations((prev) =>
+                prev.map((conversation) =>
+                    conversation._id === currentConversation._id
+                        ? { ...conversation, title: content.substring(0, 50), updatedAt: new Date().toISOString() }
+                        : conversation
+                )
+            );
             return { ...data, conversationId: currentConversation._id };
         } catch (err) {
             const isCancelled = err?.name === 'CanceledError' || err?.name === 'AbortError' || err?.code === 'ERR_CANCELED';
             if (!isCancelled) {
-                setMessages((prev) => prev.filter((m) => m._id !== userMsg._id));
+                setMessages((prev) => prev.filter((m) => m._id !== userMsg._id && !m.streaming));
                 setError(getErrorMessage(err, 'Lỗi kết nối. Vui lòng thử lại.'));
             }
             return null;
@@ -212,6 +258,7 @@ export const ChatProvider = ({ children }) => {
             selectConversation,
             startNewConversation,
             appendAssistantMessage,
+            updateMessageAudioUrl,
             sendMessage,
             removeConversation,
             deleteAllConversations,

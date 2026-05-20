@@ -1,24 +1,76 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import authorizedAxiosClient from '../../../utils/authorizedAxiosClient';
-import { apiFetchJson } from '../../../utils/apiClient';
-import { STORAGE_KEYS } from '../../../utils/constants';
+import apiClient from '../../../utils/apiClient';
+import { API_ROOT } from '../../../utils/constants';
+import {
+    attachCookieHeader,
+    clearAuthSession,
+    debugLog,
+    persistResponseCookies,
+} from '../../../utils/authSession';
 
 export const loginClientAPI = async (data) => {
-    const payload = { identifier: data.email ?? data.identifier, password: data.password };
-    return apiFetchJson('/v1/login', { method: 'POST', body: payload });
-};
-
-export const registerClientAPI = async (data) => {
-    const payload = { fullName: data.fullName, identifier: data.email ?? data.identifier, password: data.password };
-    return apiFetchJson('/v1/register', { method: 'POST', body: payload });
-};
-
-export const logoutClientAPI = async () => {
-    const response = await authorizedAxiosClient.delete('/v1/logout');
+    const payload = { email: data.email, password: data.password };
+    const response = await apiClient.post('/v1/login', payload);
+    await persistResponseCookies(response.headers, 'client');
     return response.data;
 };
 
+export const registerClientAPI = async (data) => {
+    const payload = { fullName: data.fullName, email: data.email, password: data.password };
+    const endpoint = '/v1/register';
+    debugLog('[registerClientAPI] POST', `${API_ROOT}${endpoint}`, { ...payload, password: payload.password ? '[REDACTED]' : '' });
+    try {
+        const response = await apiClient.post(endpoint, payload);
+        debugLog('[registerClientAPI] success', response.status, response.data);
+        return response.data;
+    } catch (error) {
+        debugLog('[registerClientAPI] error', {
+            url: `${API_ROOT}${endpoint}`,
+            status: error?.response?.status,
+            data: error?.response?.data,
+            message: error?.message,
+            code: error?.code,
+        });
+        throw error;
+    }
+};
+
+export const verifyEmailAPI = async (token) => {
+    const response = await apiClient.get('/v1/verify-email', { params: { token } });
+    return response.data;
+};
+
+export const resendVerificationEmailAPI = async (data) => {
+    const response = await apiClient.post('/v1/resend-verification-email', { email: data.email });
+    return response.data;
+};
+
+export const forgotPasswordAPI = async (data) => {
+    const response = await apiClient.post('/v1/forgot-password', { email: data.email });
+    return response.data;
+};
+
+export const resetPasswordAPI = async (data) => {
+    const response = await apiClient.post('/v1/reset-password', {
+        token: data.token,
+        password: data.password,
+        confirmPassword: data.confirmPassword,
+    });
+    return response.data;
+};
+
+export const logoutClientAPI = async () => {
+    try {
+        const response = await authorizedAxiosClient.delete('/v1/logout');
+        return response.data;
+    } finally {
+        await clearAuthSession('client');
+    }
+};
+
 export const refreshClientTokenAPI = async () => {
-    const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-    return apiFetchJson('/v1/refresh-token', { method: 'POST', body: { refreshToken } });
+    const config = await attachCookieHeader({}, 'client');
+    const response = await apiClient.post('/v1/refresh-token', {}, config);
+    await persistResponseCookies(response.headers, 'client');
+    return response.data;
 };

@@ -18,6 +18,12 @@ export const STORAGE_KEYS = {
     ACCESS_TOKEN: 'accessToken',
     REFRESH_TOKEN: 'refreshToken',
     USER_INFO: 'userInfo',
+    CLIENT_COOKIE_HEADER: 'clientCookieHeader',
+    ADMIN_COOKIE_HEADER: 'adminCookieHeader',
+};
+
+export const CHAT_LIMITS = {
+    MAX_MESSAGE_LENGTH: 1000,
 };
 
 export const COLORS = {

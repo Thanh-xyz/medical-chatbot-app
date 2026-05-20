@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useSettings } from '../../store/SettingsContext';
+import { goBackOrNavigate } from '../../utils/navigation';
 
 const PLANS = [
     {
@@ -77,7 +78,7 @@ const PLANS = [
     },
 ];
 
-const UpgradeScreen = ({ navigation }) => {
+const UpgradeScreen = ({ navigation, route }) => {
     const { isDarkMode } = useSettings();
 
     const bg = isDarkMode ? '#0F172A' : '#F0F4F8';
@@ -92,6 +93,10 @@ const UpgradeScreen = ({ navigation }) => {
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: bg }} edges={['top', 'bottom']}>
             <ScrollView contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
+                <TouchableOpacity style={s.backBtn} onPress={() => goBackOrNavigate(navigation, route?.params?.from || 'Chat')}>
+                    <Ionicons name="arrow-back-outline" size={16} color={textPrimary} />
+                    <Text style={[s.backText, { color: textPrimary }]}>Quay lại</Text>
+                </TouchableOpacity>
                 <View style={[s.heroCard, { backgroundColor: heroBg, borderColor: heroBorder }]}>
                     <View style={s.heroLeft}>
                         <View style={s.badgeRow}>
@@ -180,6 +185,18 @@ const UpgradeScreen = ({ navigation }) => {
 
 const s = StyleSheet.create({
     container: { padding: 16, paddingBottom: 32 },
+    backBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        alignSelf: 'flex-start',
+        backgroundColor: 'rgba(0,0,0,0.06)',
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 20,
+        marginBottom: 16,
+    },
+    backText: { fontSize: 14, fontWeight: '500' },
     heroCard: {
         borderRadius: 16,
         borderWidth: 1,

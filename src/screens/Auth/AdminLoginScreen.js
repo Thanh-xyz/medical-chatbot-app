@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     View,
     Text,
@@ -16,6 +16,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import useAuth from '../../hooks/useAuth';
 import { isUserApp } from '../../config/appVariant';
 import { getApiErrorMessage } from '../../utils/apiClient';
+import { validateEmail } from '../../utils/validation';
+import { formatLoginLockRemaining, getLoginLockRemainingSeconds } from '../../utils/authLock';
 
 const FEATURES = [
     { icon: 'hardware-chip-outline', label: 'AI', desc: 'Quy trình trợ lý AI', color: '#2563EB', bg: '#EFF6FF' },
@@ -29,18 +31,47 @@ const AdminLoginScreen = ({ navigation }) => {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [lockedUntil, setLockedUntil] = useState(null);
+    const [lockRemainingSeconds, setLockRemainingSeconds] = useState(0);
     const { handleAdminLogin } = useAuth();
 
+    useEffect(() => {
+        if (!lockedUntil) return undefined;
+        const updateRemaining = () => {
+            const remaining = getLoginLockRemainingSeconds(lockedUntil);
+            setLockRemainingSeconds(remaining);
+            if (remaining <= 0) setLockedUntil(null);
+        };
+        updateRemaining();
+        const timer = setInterval(updateRemaining, 1000);
+        return () => clearInterval(timer);
+    }, [lockedUntil]);
+
     const handleLogin = async () => {
-        if (!email.trim() || !password.trim()) {
-            setError('Vui lòng nhập đầy đủ thông tin.');
+        if (lockRemainingSeconds > 0) {
+            setError(`Tài khoản đang bị tạm khóa. Vui lòng thử lại sau ${formatLoginLockRemaining(lockRemainingSeconds)}.`);
+            return;
+        }
+        const normalizedEmail = email.trim().toLowerCase();
+        const emailError = validateEmail(normalizedEmail);
+        if (emailError) {
+            setError(emailError);
+            return;
+        }
+        if (!password.trim()) {
+            setError('Mật khẩu không được để trống');
             return;
         }
         setError('');
         setLoading(true);
         try {
-            await handleAdminLogin(email.trim(), password);
+            await handleAdminLogin(normalizedEmail, password);
         } catch (err) {
+            const lockedUntilValue = err?.response?.data?.lockedUntil;
+            if (lockedUntilValue) {
+                setLockedUntil(lockedUntilValue);
+                setLockRemainingSeconds(getLoginLockRemainingSeconds(lockedUntilValue));
+            }
             setError(getApiErrorMessage(err, 'Thông tin đăng nhập không hợp lệ.'));
         } finally {
             setLoading(false);
@@ -101,6 +132,14 @@ const AdminLoginScreen = ({ navigation }) => {
                                     <Text style={styles.errorText}>{error}</Text>
                                 </View>
                             )}
+                            {lockRemainingSeconds > 0 && (
+                                <View style={styles.warningBox}>
+                                    <Ionicons name="time-outline" size={15} color="#B45309" style={{ marginRight: 6 }} />
+                                    <Text style={styles.warningText}>
+                                        Tài khoản đang bị tạm khóa. Thử lại sau {formatLoginLockRemaining(lockRemainingSeconds)}.
+                                    </Text>
+                                </View>
+                            )}
 
                             <Text style={styles.label}>Email quản trị</Text>
                             <View style={styles.inputWrapper}>
@@ -139,7 +178,7 @@ const AdminLoginScreen = ({ navigation }) => {
                             <TouchableOpacity
                                 style={[styles.btn, loading && styles.btnDisabled]}
                                 onPress={handleLogin}
-                                disabled={loading}
+                                disabled={loading || lockRemainingSeconds > 0}
                             >
                                 {loading ? (
                                     <ActivityIndicator color="#FFFFFF" />
@@ -261,6 +300,17 @@ const styles = StyleSheet.create({
         marginBottom: 16,
     },
     errorText: { color: '#B91C1C', fontSize: 13, flex: 1, lineHeight: 18 },
+    warningBox: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: '#FFFBEB',
+        borderLeftWidth: 3,
+        borderLeftColor: '#F59E0B',
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 16,
+    },
+    warningText: { color: '#B45309', fontSize: 13, flex: 1, lineHeight: 18 },
     label: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 },
     inputWrapper: {
         flexDirection: 'row',

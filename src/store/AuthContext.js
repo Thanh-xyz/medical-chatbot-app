@@ -2,6 +2,10 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DeviceEventEmitter } from 'react-native';
 import { STORAGE_KEYS } from '../utils/constants';
+import { clearAuthSession } from '../utils/authSession';
+import { isAdminApp } from '../config/appVariant';
+import { getClientAccountAPI } from '../services/apis/Client/myAccount.api';
+import { getAdminAccountAPI } from '../services/apis/Admin/myAccount.api';
 
 const AuthContext = createContext(null);
 
@@ -25,7 +29,17 @@ export const AuthProvider = ({ children }) => {
         try {
             const userJson = await AsyncStorage.getItem(STORAGE_KEYS.USER_INFO);
             if (userJson) {
-                setUser(JSON.parse(userJson));
+                const storedUser = JSON.parse(userJson);
+                setUser(storedUser);
+                try {
+                    const freshUser = isAdminApp ? await getAdminAccountAPI() : await getClientAccountAPI();
+                    const nextUser = isAdminApp ? { ...freshUser, role: 'admin' } : freshUser;
+                    await AsyncStorage.setItem(STORAGE_KEYS.USER_INFO, JSON.stringify(nextUser));
+                    setUser(nextUser);
+                } catch {
+                    await clearAuthSession(isAdminApp ? 'admin' : 'client');
+                    setUser(null);
+                }
             }
         } catch {
         } finally {
@@ -49,11 +63,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     const logout = async () => {
-        await AsyncStorage.multiRemove([
-            STORAGE_KEYS.ACCESS_TOKEN,
-            STORAGE_KEYS.REFRESH_TOKEN,
-            STORAGE_KEYS.USER_INFO,
-        ]);
+        await clearAuthSession();
         setUser(null);
     };
 
